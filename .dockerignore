@@ -1,0 +1,16 @@
+# Never put secrets or local data in the image.
+.env
+.env.*
+!.env.example
+data/
+**/node_modules/
+web/dist/
+server/test/
+docs/
+infra/
+.github/
+.git/
+*.log
+Dockerfile
+docker-compose.yml
+.dockerignore

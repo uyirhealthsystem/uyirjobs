@@ -1,0 +1,19 @@
+{
+  "name": "uyir-nurse-registration",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Statewide nurse information collection: Express API (server/) + React app (web/), PostgreSQL on RDS, documents on S3.",
+  "scripts": {
+    "install:all": "npm --prefix server ci && npm --prefix web ci",
+    "dev:server": "npm --prefix server run dev",
+    "dev:web": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "start": "npm --prefix server start",
+    "test": "npm --prefix server test",
+    "seed": "npm --prefix server run seed",
+    "seed:demo": "npm --prefix server run seed:demo",
+    "create-admin": "npm --prefix server run create-admin",
+    "migrate:sqlite": "npm --prefix server run migrate:sqlite",
+    "migrate:s3": "npm --prefix server run migrate:s3"
+  }
+}

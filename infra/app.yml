@@ -1,0 +1,522 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Uyir nurse registration - production stack (ap-south-1): VPC across 2 AZs, ALB with HTTPS,
+  ECS Fargate (autoscaling tasks), RDS PostgreSQL (Multi-AZ optional), private KMS-encrypted S3 bucket for documents,
+  secrets in Secrets Manager. Deployed by the GitHub Actions pipeline (.github/workflows/deploy.yml).
+
+Parameters:
+  ImageUri:
+    Type: String
+    Description: Container image to run, e.g. 123456789012.dkr.ecr.ap-south-1.amazonaws.com/uyir-nurse-registration:<git-sha>. Set by the pipeline.
+  DomainName:
+    Type: String
+    Default: uyirjobs.in
+    Description: Public domain. Nurses register at https://<domain>/register; staff sign in at https://<domain>/.
+  CertificateArn:
+    Type: String
+    Description: ACM certificate for the domain, in THIS region (ap-south-1).
+    AllowedPattern: 'arn:aws:acm:.+'
+  HostedZoneId:
+    Type: String
+    Default: ''
+    Description: Optional Route 53 hosted zone ID for the domain. If set, the A record is created for you.
+  DesiredCount: { Type: Number, Default: 2, MinValue: 1, Description: 'Tasks to run (2+ for high availability).' }
+  MaxCount: { Type: Number, Default: 6, MinValue: 1, Description: 'Autoscaling upper limit.' }
+  TaskCpu: { Type: String, Default: '512', AllowedValues: ['256', '512', '1024', '2048'] }
+  TaskMemory: { Type: String, Default: '1024', AllowedValues: ['512', '1024', '2048', '4096'] }
+  DbInstanceClass: { Type: String, Default: db.t4g.medium }
+  DbMultiAz: { Type: String, Default: 'true', AllowedValues: ['true', 'false'], Description: 'Standby in a second AZ with automatic failover.' }
+  DbAllocatedStorage: { Type: Number, Default: 50, MinValue: 20 }
+  DbEngineVersion: { Type: String, Default: '17' }
+  WhatsAppProvider: { Type: String, Default: simulated, AllowedValues: [simulated, meta], Description: 'meta = really send (fill the WhatsApp secret first).' }
+  WhatsAppBusinessNumber: { Type: String, AllowedPattern: '91[0-9]{10}', Description: 'Your WhatsApp Business number, digits only (wa.me link in the invite SMS).' }
+  WhatsAppPhoneNumberId: { Type: String, Default: '', Description: 'From WhatsApp Manager, API setup.' }
+  WhatsAppLang: { Type: String, Default: en }
+  AlarmEmail: { Type: String, Default: '', Description: 'Optional: email for alarms (5xx errors, unhealthy tasks, database).' }
+  UseNatGateway:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: >
+      false (budget) = app tasks run in public subnets with a public IP, reachable only from the load
+      balancer (security group). true = tasks in private subnets behind one NAT gateway per AZ (~USD 70/month, 2 Elastic IPs).
+
+Conditions:
+  HasZone: !Not [!Equals [!Ref HostedZoneId, '']]
+  HasAlarmEmail: !Not [!Equals [!Ref AlarmEmail, '']]
+  MultiAz: !Equals [!Ref DbMultiAz, 'true']
+  UseNat: !Equals [!Ref UseNatGateway, 'true']
+
+Resources:
+  # ---------------------------------------------------------------- encryption key
+  DataKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: Uyir - encrypts nurse documents (S3) and the database (RDS)
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountAdmin
+            Effect: Allow
+            Principal: { AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root' }
+            Action: kms:*
+            Resource: '*'
+  DataKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties: { AliasName: alias/uyir-data, TargetKeyId: !Ref DataKey }
+
+  # ---------------------------------------------------------------- network (2 AZs)
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties: { CidrBlock: 10.20.0.0/16, EnableDnsHostnames: true, EnableDnsSupport: true, Tags: [{ Key: Name, Value: uyir }] }
+  Igw: { Type: AWS::EC2::InternetGateway }
+  IgwAttach: { Type: AWS::EC2::VPCGatewayAttachment, Properties: { VpcId: !Ref Vpc, InternetGatewayId: !Ref Igw } }
+
+  PublicA: { Type: AWS::EC2::Subnet, Properties: { VpcId: !Ref Vpc, CidrBlock: 10.20.0.0/24, AvailabilityZone: !Select [0, !GetAZs ''], MapPublicIpOnLaunch: false, Tags: [{ Key: Name, Value: uyir-public-a }] } }
+  PublicB: { Type: AWS::EC2::Subnet, Properties: { VpcId: !Ref Vpc, CidrBlock: 10.20.1.0/24, AvailabilityZone: !Select [1, !GetAZs ''], MapPublicIpOnLaunch: false, Tags: [{ Key: Name, Value: uyir-public-b }] } }
+  PrivateA: { Type: AWS::EC2::Subnet, Properties: { VpcId: !Ref Vpc, CidrBlock: 10.20.10.0/24, AvailabilityZone: !Select [0, !GetAZs ''], Tags: [{ Key: Name, Value: uyir-private-a }] } }
+  PrivateB: { Type: AWS::EC2::Subnet, Properties: { VpcId: !Ref Vpc, CidrBlock: 10.20.11.0/24, AvailabilityZone: !Select [1, !GetAZs ''], Tags: [{ Key: Name, Value: uyir-private-b }] } }
+
+  PublicRt: { Type: AWS::EC2::RouteTable, Properties: { VpcId: !Ref Vpc } }
+  PublicDefault: { Type: AWS::EC2::Route, DependsOn: IgwAttach, Properties: { RouteTableId: !Ref PublicRt, DestinationCidrBlock: 0.0.0.0/0, GatewayId: !Ref Igw } }
+  PublicAAssoc: { Type: AWS::EC2::SubnetRouteTableAssociation, Properties: { SubnetId: !Ref PublicA, RouteTableId: !Ref PublicRt } }
+  PublicBAssoc: { Type: AWS::EC2::SubnetRouteTableAssociation, Properties: { SubnetId: !Ref PublicB, RouteTableId: !Ref PublicRt } }
+
+  # Optional (UseNatGateway=true): one NAT gateway per AZ for tasks in private subnets.
+  # Budget mode skips them: tasks sit in the public subnets with a public IP for outbound calls
+  # (ECR, Secrets Manager, Meta API), and the AppSg still only accepts traffic from the load balancer.
+  # The database always stays in the private subnets, which have no route to the internet.
+  NatEipA: { Type: AWS::EC2::EIP, Condition: UseNat, DependsOn: IgwAttach, Properties: { Domain: vpc } }
+  NatEipB: { Type: AWS::EC2::EIP, Condition: UseNat, DependsOn: IgwAttach, Properties: { Domain: vpc } }
+  NatA: { Type: AWS::EC2::NatGateway, Condition: UseNat, Properties: { AllocationId: !GetAtt NatEipA.AllocationId, SubnetId: !Ref PublicA } }
+  NatB: { Type: AWS::EC2::NatGateway, Condition: UseNat, Properties: { AllocationId: !GetAtt NatEipB.AllocationId, SubnetId: !Ref PublicB } }
+  PrivateRtA: { Type: AWS::EC2::RouteTable, Properties: { VpcId: !Ref Vpc } }
+  PrivateRtB: { Type: AWS::EC2::RouteTable, Properties: { VpcId: !Ref Vpc } }
+  PrivateDefaultA: { Type: AWS::EC2::Route, Condition: UseNat, Properties: { RouteTableId: !Ref PrivateRtA, DestinationCidrBlock: 0.0.0.0/0, NatGatewayId: !Ref NatA } }
+  PrivateDefaultB: { Type: AWS::EC2::Route, Condition: UseNat, Properties: { RouteTableId: !Ref PrivateRtB, DestinationCidrBlock: 0.0.0.0/0, NatGatewayId: !Ref NatB } }
+  PrivateAAssoc: { Type: AWS::EC2::SubnetRouteTableAssociation, Properties: { SubnetId: !Ref PrivateA, RouteTableId: !Ref PrivateRtA } }
+  PrivateBAssoc: { Type: AWS::EC2::SubnetRouteTableAssociation, Properties: { SubnetId: !Ref PrivateB, RouteTableId: !Ref PrivateRtB } }
+
+  # S3 traffic stays inside AWS (and is free), and the bucket policy can require it.
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds: [!Ref PrivateRtA, !Ref PrivateRtB, !Ref PublicRt]
+
+  AlbSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Uyir load balancer - HTTPS from the internet
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0 }   # redirected to HTTPS
+  AppSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Uyir app tasks - only from the load balancer
+      VpcId: !Ref Vpc
+      SecurityGroupIngress: [{ IpProtocol: tcp, FromPort: 3000, ToPort: 3000, SourceSecurityGroupId: !Ref AlbSg }]
+  DbSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Uyir database - only from the app tasks
+      VpcId: !Ref Vpc
+      SecurityGroupIngress: [{ IpProtocol: tcp, FromPort: 5432, ToPort: 5432, SourceSecurityGroupId: !Ref AppSg }]
+
+  # ---------------------------------------------------------------- documents bucket
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain          # nurse documents are never deleted with the stack
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub uyir-documents-${AWS::AccountId}-${AWS::Region}
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+      OwnershipControls: { Rules: [{ ObjectOwnership: BucketOwnerEnforced }] }
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: 'aws:kms', KMSMasterKeyID: !GetAtt DataKey.Arn }
+            BucketKeyEnabled: true
+      VersioningConfiguration: { Status: Enabled }
+      LifecycleConfiguration:
+        Rules:
+          - Id: old-versions
+            Status: Enabled
+            NoncurrentVersionTransitions: [{ StorageClass: GLACIER_IR, TransitionInDays: 30 }]
+            NoncurrentVersionExpiration: { NoncurrentDays: 730 }
+          - Id: abort-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+  DocumentsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DocumentsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt DocumentsBucket.Arn, !Sub '${DocumentsBucket.Arn}/*']
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } }
+          - Sid: KmsOnly
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${DocumentsBucket.Arn}/*'
+            Condition: { StringNotEquals: { 's3:x-amz-server-side-encryption': 'aws:kms' } }
+
+  # ---------------------------------------------------------------- secrets
+  DbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: uyir/db
+      Description: Uyir RDS master credentials
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"uyir_admin"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\''` '
+  DbSecretAttach:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties: { SecretId: !Ref DbSecret, TargetId: !Ref Database, TargetType: 'AWS::RDS::DBInstance' }
+
+  # Encrypts nurses' bank account numbers. NEVER rotate or delete it without re-encrypting the
+  # data first: losing it makes stored account numbers unreadable.
+  FieldKeySecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: uyir/field-enc-key
+      Description: Uyir FIELD_ENC_KEY (bank-detail encryption). Do not rotate.
+      GenerateSecretString: { PasswordLength: 43, ExcludePunctuation: true, IncludeSpace: false }   # 43 base64 chars = 32 bytes
+
+  WhatsAppSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: uyir/whatsapp
+      Description: 'WhatsApp Cloud API: set "token" and "app_secret" before switching WhatsAppProvider to meta.'
+      GenerateSecretString:
+        SecretStringTemplate: '{"token":"CHANGE_ME","app_secret":"CHANGE_ME"}'
+        GenerateStringKey: verify_token
+        PasswordLength: 32
+        ExcludePunctuation: true
+
+  # ---------------------------------------------------------------- database
+  DbSubnets:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties: { DBSubnetGroupDescription: Uyir database subnets, SubnetIds: [!Ref PrivateA, !Ref PrivateB] }
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: uyir-db
+      Engine: postgres
+      EngineVersion: !Ref DbEngineVersion
+      DBInstanceClass: !Ref DbInstanceClass
+      DBName: uyir
+      MasterUsername: !Sub '{{resolve:secretsmanager:${DbSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DbSecret}:SecretString:password}}'
+      AllocatedStorage: !Ref DbAllocatedStorage
+      MaxAllocatedStorage: 500
+      StorageType: gp3
+      StorageEncrypted: true
+      KmsKeyId: !Ref DataKey
+      MultiAZ: !If [MultiAz, true, false]
+      DBSubnetGroupName: !Ref DbSubnets
+      VPCSecurityGroups: [!Ref DbSg]
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 14
+      PreferredBackupWindow: '20:00-21:00'          # 01:30-02:30 IST
+      PreferredMaintenanceWindow: 'sun:21:30-sun:22:30'
+      CopyTagsToSnapshot: true
+      DeletionProtection: true
+      AutoMinorVersionUpgrade: true
+      EnablePerformanceInsights: true
+      EnableCloudwatchLogsExports: [postgresql]
+
+  # ---------------------------------------------------------------- containers
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: /ecs/uyir, RetentionInDays: 90 }
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: uyir
+      ClusterSettings: [{ Name: containerInsights, Value: enabled }]
+
+  ExecutionRole:   # used by ECS to pull the image and read secrets at task start
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{ Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: sts:AssumeRole }]
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy]
+      Policies:
+        - PolicyName: read-secrets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: [!Ref DbSecret, !Ref FieldKeySecret, !Ref WhatsAppSecret]
+
+  TaskRole:        # what the running app may do: read/write documents, nothing else
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{ Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: sts:AssumeRole }]
+      Policies:
+        - PolicyName: documents
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetObject]          # no DeleteObject: documents are kept for audit
+                Resource: !Sub '${DocumentsBucket.Arn}/documents/*'
+              - Effect: Allow
+                Action: s3:ListBucket                          # HeadBucket health check
+                Resource: !GetAtt DocumentsBucket.Arn
+              - Effect: Allow
+                Action: [kms:GenerateDataKey, kms:Decrypt]
+                Resource: !GetAtt DataKey.Arn
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: uyir-app
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      RuntimePlatform: { OperatingSystemFamily: LINUX, CpuArchitecture: X86_64 }
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Ref ImageUri
+          Essential: true
+          PortMappings: [{ ContainerPort: 3000, Protocol: tcp }]
+          StopTimeout: 30                      # the app drains in-flight requests on SIGTERM
+          Environment:
+            - { Name: NODE_ENV, Value: production }
+            - { Name: PORT, Value: '3000' }
+            - { Name: PUBLIC_URL, Value: !Sub 'https://${DomainName}' }
+            - { Name: STORAGE_DRIVER, Value: s3 }
+            - { Name: S3_BUCKET, Value: !Ref DocumentsBucket }
+            - { Name: S3_KMS_KEY_ID, Value: !GetAtt DataKey.Arn }
+            - { Name: S3_PREFIX, Value: documents/ }
+            - { Name: AWS_REGION, Value: !Ref 'AWS::Region' }
+            - { Name: PGHOST, Value: !GetAtt Database.Endpoint.Address }
+            - { Name: PGPORT, Value: !GetAtt Database.Endpoint.Port }
+            - { Name: PGDATABASE, Value: uyir }
+            - { Name: DATABASE_SSL, Value: '1' }
+            - { Name: DATABASE_CA_FILE, Value: /app/certs/rds-global-bundle.pem }
+            - { Name: PG_POOL_MAX, Value: '10' }
+            - { Name: WHATSAPP_PROVIDER, Value: !Ref WhatsAppProvider }
+            - { Name: WHATSAPP_BUSINESS_NUMBER, Value: !Ref WhatsAppBusinessNumber }
+            - { Name: WHATSAPP_PHONE_NUMBER_ID, Value: !Ref WhatsAppPhoneNumberId }
+            - { Name: WHATSAPP_LANG, Value: !Ref WhatsAppLang }
+          Secrets:
+            - { Name: PGUSER, ValueFrom: !Sub '${DbSecret}:username::' }
+            - { Name: PGPASSWORD, ValueFrom: !Sub '${DbSecret}:password::' }
+            - { Name: FIELD_ENC_KEY, ValueFrom: !Ref FieldKeySecret }
+            - { Name: WHATSAPP_TOKEN, ValueFrom: !Sub '${WhatsAppSecret}:token::' }
+            - { Name: WHATSAPP_APP_SECRET, ValueFrom: !Sub '${WhatsAppSecret}:app_secret::' }
+            - { Name: WHATSAPP_VERIFY_TOKEN, ValueFrom: !Sub '${WhatsAppSecret}:verify_token::' }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options: { awslogs-group: !Ref LogGroup, awslogs-region: !Ref 'AWS::Region', awslogs-stream-prefix: app }
+          HealthCheck:
+            Command: ['CMD-SHELL', "node -e \"fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 30
+
+  # ---------------------------------------------------------------- load balancer
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Subnets: [!Ref PublicA, !Ref PublicB]
+      SecurityGroups: [!Ref AlbSg]
+      LoadBalancerAttributes:
+        - { Key: routing.http.drop_invalid_header_fields.enabled, Value: 'true' }
+        - { Key: idle_timeout.timeout_seconds, Value: '60' }
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref Vpc
+      TargetType: ip
+      Protocol: HTTP
+      Port: 3000
+      HealthCheckPath: /healthz
+      HealthCheckIntervalSeconds: 15
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: '30' }
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates: [{ CertificateArn: !Ref CertificateArn }]
+      DefaultActions: [{ Type: forward, TargetGroupArn: !Ref TargetGroup }]
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig: { Protocol: HTTPS, Port: '443', StatusCode: HTTP_301 }
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: HttpsListener
+    Properties:
+      ServiceName: uyir-app
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref DesiredCount
+      HealthCheckGracePeriodSeconds: 60
+      PropagateTags: SERVICE
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100            # rolling deploy: old tasks stay until new ones are healthy
+        MaximumPercent: 200
+        DeploymentCircuitBreaker: { Enable: true, Rollback: true }   # a bad release rolls itself back
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: !If [UseNat, [!Ref PrivateA, !Ref PrivateB], [!Ref PublicA, !Ref PublicB]]
+          SecurityGroups: [!Ref AppSg]
+          AssignPublicIp: !If [UseNat, DISABLED, ENABLED]
+      LoadBalancers: [{ ContainerName: app, ContainerPort: 3000, TargetGroupArn: !Ref TargetGroup }]
+
+  ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      ServiceNamespace: ecs
+      ScalableDimension: ecs:service:DesiredCount
+      ResourceId: !Sub service/${Cluster}/${Service.Name}
+      MinCapacity: !Ref DesiredCount
+      MaxCapacity: !Ref MaxCount
+  CpuScaling:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: uyir-cpu
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 60
+        PredefinedMetricSpecification: { PredefinedMetricType: ECSServiceAverageCPUUtilization }
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget: { DNSName: !GetAtt Alb.DNSName, HostedZoneId: !GetAtt Alb.CanonicalHostedZoneID }
+
+  # ---------------------------------------------------------------- alarms (optional)
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasAlarmEmail
+    Properties: { Subscription: [{ Protocol: email, Endpoint: !Ref AlarmEmail }] }
+  Alarm5xx:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasAlarmEmail
+    Properties:
+      AlarmDescription: Uyir - the app is returning server errors
+      Namespace: AWS/ApplicationELB
+      MetricName: HTTPCode_Target_5XX_Count
+      Dimensions: [{ Name: LoadBalancer, Value: !GetAtt Alb.LoadBalancerFullName }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 20
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+  AlarmUnhealthy:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasAlarmEmail
+    Properties:
+      AlarmDescription: Uyir - fewer healthy app tasks than expected
+      Namespace: AWS/ApplicationELB
+      MetricName: HealthyHostCount
+      Dimensions:
+        - { Name: LoadBalancer, Value: !GetAtt Alb.LoadBalancerFullName }
+        - { Name: TargetGroup, Value: !GetAtt TargetGroup.TargetGroupFullName }
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 5
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref AlarmTopic]
+  AlarmDbStorage:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasAlarmEmail
+    Properties:
+      AlarmDescription: Uyir - database storage running low
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Dimensions: [{ Name: DBInstanceIdentifier, Value: !Ref Database }]
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5368709120     # 5 GB
+      ComparisonOperator: LessThanThreshold
+      AlarmActions: [!Ref AlarmTopic]
+
+Outputs:
+  LoadBalancerDns:
+    Value: !GetAtt Alb.DNSName
+    Description: Point the domain at this (CNAME / alias) if you didn't give a HostedZoneId.
+  Url:
+    Value: !Sub https://${DomainName}
+  DocumentsBucket:
+    Value: !Ref DocumentsBucket
+  DatabaseEndpoint:
+    Value: !GetAtt Database.Endpoint.Address
+  ClusterName:
+    Value: !Ref Cluster
+  ServiceName:
+    Value: !GetAtt Service.Name
+  TaskDefinitionFamily:
+    Value: uyir-app
+  PrivateSubnets:
+    Value: !Sub '${PrivateA},${PrivateB}'
+  TaskSubnets:
+    Value: !If [UseNat, !Sub '${PrivateA},${PrivateB}', !Sub '${PublicA},${PublicB}']
+    Description: For one-off tasks (create-admin, migrations), with assignPublicIp = TaskAssignPublicIp.
+  TaskAssignPublicIp:
+    Value: !If [UseNat, DISABLED, ENABLED]
+  AppSecurityGroup:
+    Value: !Ref AppSg
+  WhatsAppSecretArn:
+    Value: !Ref WhatsAppSecret
+  WebhookUrl:
+    Value: !Sub https://${DomainName}/api/whatsapp/webhook
+    Description: Register this in the Meta app (WhatsApp, Configuration).

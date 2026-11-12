@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Uyir nurse registration - one-time bootstrap: container registry (ECR) and the roles that let
+  GitHub Actions deploy with short-lived OIDC credentials (no AWS keys stored in GitHub).
+  Deploy once:  aws cloudformation deploy --stack-name uyir-bootstrap --template-file infra/bootstrap.yml
+                  --capabilities CAPABILITY_NAMED_IAM --parameter-overrides GitHubRepo=<owner>/<repo>
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Description: GitHub repository allowed to deploy, as owner/name (e.g. uyirjobs/nurse-registration).
+    AllowedPattern: '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
+  DeployBranch:
+    Type: String
+    Default: main
+    Description: Only workflows running on this branch can deploy.
+  CreateOidcProvider:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Set false if this AWS account already has the token.actions.githubusercontent.com OIDC provider.
+  AppStackName:
+    Type: String
+    Default: uyir-prod
+    Description: Name of the application stack the pipeline deploys (infra/app.yml).
+
+Conditions:
+  MakeOidc: !Equals [!Ref CreateOidcProvider, 'true']
+
+Resources:
+  Repository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    Properties:
+      RepositoryName: uyir-nurse-registration
+      ImageTagMutability: IMMUTABLE        # every deploy is a new tag (the git commit SHA)
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules":[{"rulePriority":1,"description":"Keep the last 30 images","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":30},"action":{"type":"expire"}}]}
+
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: MakeOidc
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      ThumbprintList: [6938fd4d98bab03faadb97b34396831e3780aea1]   # AWS no longer checks it for GitHub, but the field is required
+
+  # Role CloudFormation itself uses to create/update the application stack.
+  CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: uyir-cfn-execution
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudformation.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/AdministratorAccess]   # only CloudFormation can use it, only on our stacks (see below)
+
+  # Role GitHub Actions assumes: push images, deploy the app stack through CloudFormation. Nothing else.
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: uyir-github-deploy
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If [MakeOidc, !Ref GitHubOidcProvider, !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com']
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                # main branch pushes, or a job that uses the "production" GitHub environment
+                token.actions.githubusercontent.com:sub:
+                  - !Sub repo:${GitHubRepo}:ref:refs/heads/${DeployBranch}
+                  - !Sub repo:${GitHubRepo}:environment:production
+      Policies:
+        - PolicyName: deploy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: EcrLogin
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Sid: EcrPush
+                Effect: Allow
+                Action: [ecr:BatchCheckLayerAvailability, ecr:BatchGetImage, ecr:CompleteLayerUpload, ecr:DescribeImages,
+                         ecr:InitiateLayerUpload, ecr:PutImage, ecr:UploadLayerPart, ecr:GetDownloadUrlForLayer]
+                Resource: !GetAtt Repository.Arn
+              - Sid: DeployStack
+                Effect: Allow
+                Action: [cloudformation:CreateChangeSet, cloudformation:DescribeChangeSet, cloudformation:ExecuteChangeSet,
+                         cloudformation:DeleteChangeSet, cloudformation:DescribeStacks, cloudformation:DescribeStackEvents,
+                         cloudformation:GetTemplateSummary, cloudformation:ListStackResources]
+                Resource: !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AppStackName}/*
+              - Sid: ValidateTemplate
+                Effect: Allow
+                Action: [cloudformation:ValidateTemplate, cloudformation:GetTemplateSummary]
+                Resource: '*'
+              - Sid: PassExecutionRoleToCloudFormationOnly
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt CloudFormationExecutionRole.Arn
+                Condition:
+                  StringEquals: { iam:PassedToService: cloudformation.amazonaws.com }
+              - Sid: ReadServiceState   # wait for the rollout and print its result
+                Effect: Allow
+                Action: [ecs:DescribeServices, ecs:DescribeTasks, ecs:ListTasks]
+                Resource: '*'
+
+Outputs:
+  RepositoryUri:
+    Value: !GetAtt Repository.RepositoryUri
+    Description: Set as the ECR_REPOSITORY GitHub variable (just the name, uyir-nurse-registration) - this is the full URI.
+  GitHubDeployRoleArn:
+    Value: !GetAtt GitHubDeployRole.Arn
+    Description: Set as the AWS_DEPLOY_ROLE_ARN GitHub variable.
+  CloudFormationExecutionRoleArn:
+    Value: !GetAtt CloudFormationExecutionRole.Arn
+    Description: Set as the CFN_EXECUTION_ROLE_ARN GitHub variable.

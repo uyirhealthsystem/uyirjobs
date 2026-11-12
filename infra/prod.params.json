@@ -1,0 +1,19 @@
+{
+  "DomainName": "uyirjobs.in",
+  "CertificateArn": "arn:aws:acm:ap-south-1:889951087887:certificate/9390a978-6bd3-4bde-812c-c8359e2f54d0",
+  "HostedZoneId": "Z01842763TJ2LL9TPQZ3E",
+  "DesiredCount": "1",
+  "MaxCount": "4",
+  "TaskCpu": "512",
+  "TaskMemory": "1024",
+  "DbInstanceClass": "db.t4g.small",
+  "DbMultiAz": "false",
+  "DbAllocatedStorage": "20",
+  "DbEngineVersion": "17",
+  "UseNatGateway": "false",
+  "WhatsAppProvider": "simulated",
+  "WhatsAppBusinessNumber": "919952407365",
+  "WhatsAppPhoneNumberId": "",
+  "WhatsAppLang": "en",
+  "AlarmEmail": ""
+}
