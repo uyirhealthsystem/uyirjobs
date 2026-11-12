@@ -344,6 +344,7 @@ test('invite SMS carries the registration link; a nurse who says "Hi" on WhatsAp
   assert.equal(sms.channel, 'sms');
   assert.ok(sms.body.includes('/register?t=' + n.nurse.reg_token), 'registration link in the SMS: ' + sms.body);
   assert.ok(!sms.body.includes('wa.me'), 'no WhatsApp chat link in the SMS');
+  assert.ok(sms.body.includes('Uyir Health App'), 'SMS names the Uyir Health App');
   assert.ok(!waSent.some(m => m.body.to === '919999900121'), 'no WhatsApp before the nurse messages us');
 
   // The nurse's WhatsApp is on a different number from the mobile we had.

@@ -11,8 +11,8 @@ const firstName = n => String(n.name || '').split(/\s+/)[0];
 
 export const TEMPLATES = {
   // SMS: the invite and its reminder carry the personal registration link.
-  INVITE:       n => `Vanakkam ${firstName(n)}, Uyir invites you to register as a nurse. Your personal registration link: ${regLink(n)} (please do not share it).`,
-  INVITE_AGAIN: n => `Vanakkam ${firstName(n)}, a reminder to complete your Uyir nurse registration: ${regLink(n)} (please do not share it).`,
+  INVITE:       n => `Vanakkam ${firstName(n)}, Uyir Health App invites you to register as a nurse. Your personal registration link: ${regLink(n)} (please do not share it).`,
+  INVITE_AGAIN: n => `Vanakkam ${firstName(n)}, a reminder to complete your nurse registration with Uyir Health App: ${regLink(n)} (please do not share it).`,
   // WhatsApp
   REG_LINK:   n => `Vanakkam ${firstName(n)}! Here is your personal Uyir registration link: ${regLink(n)} (please do not share it). Open it to fill in your details and upload your documents.`,
   REG_DONE:   n => `Thank you ${firstName(n)}, your Uyir registration is received. Please upload your documents: ${regLink(n)}`,

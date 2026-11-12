@@ -145,7 +145,19 @@ fieldset.plain { border: 0; padding: 0; margin: 0 0 10px; }
 .reg .wrap { max-width: 560px; margin: 0 auto; padding: 20px 16px 60px; }
 .reg .brand { font-weight: 700; color: #0b3b37; font-size: 18px; margin-bottom: 14px; }
 .reg .step { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
-.reg .otp { font-size: 22px; letter-spacing: .4em; text-align: center; width: 100%; }
+/* Welcome screen: colours taken from the Uyir logo (blue #2f8fd8 → green #6cc04a). */
+.reg .welcome { text-align: center; padding: 8px 4px 4px; }
+.reg .welcome-title { font-size: 28px; margin: 4px 0 14px; background: linear-gradient(90deg, #2f8fd8, #6cc04a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.reg .welcome-logo { display: block; margin: 0 auto 14px; width: 140px; height: auto; border-radius: 20px; }
+.reg .welcome-company { margin: 0 0 8px; color: var(--text); }
+.reg .welcome-badge { display: inline-block; margin: 0 0 6px; padding: 4px 12px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); font-weight: 600; font-size: 14px; }
+.reg .welcome-cin { margin: 0 0 18px; font-size: 13px; color: var(--muted); }
+.reg .welcome-slogan { margin: 0 auto 10px; padding: 12px 14px; border-radius: var(--radius); font-size: 18px; font-weight: 700; color: #fff; background: linear-gradient(90deg, #2f8fd8, #6cc04a); }
+.reg .welcome-intro { margin: 0 0 16px; }
+.reg .welcome-trust { list-style: none; padding: 0; margin: 0 0 20px; text-align: left; }
+.reg .welcome-trust li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+.reg .welcome-icon { font-size: 22px; line-height: 1.2; flex: none; }
+.reg .welcome-start { font-size: 17px; padding: 12px; }
 .reg label.chk { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
 .reg .docrow { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .reg .docrow .upload { margin-top: 6px; }
