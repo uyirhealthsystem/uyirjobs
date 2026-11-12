@@ -12,7 +12,7 @@ export function PayoutStep({ reg, d, refresh, onDone, onCancel }) {
 
   return (
     <>
-      <div className="step">Step 4 of 4 · Bank details</div>
+      <div className="step">Step 3 of 3 · Bank details</div>
       <h1>Where should we pay you?</h1>
       <p className="muted small">Your documents are verified. Add the bank account where you want to receive payments for services.
         Your account number is stored encrypted, and our staff see only the last 4 digits.</p>

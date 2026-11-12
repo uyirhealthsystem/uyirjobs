@@ -30,10 +30,7 @@ export const CODE_RE = /\bUY[2-9A-HJ-NP-Z]{6}\b/i;
 
 const first = n => String(n.name || '').split(/\s+/)[0] || 'Nurse';
 
-/**
- * App template → approved WhatsApp template name + its body variables ({{1}}, {{2}} …).
- * OTP uses an AUTHENTICATION template (Meta supplies the wording and "Copy code" button).
- */
+/** App template → approved WhatsApp template name + its body variables ({{1}}, {{2}} …). */
 export const WA_TEMPLATES = {
   REG_DONE:   { name: 'uyir_registration_received', params: (n, link) => [first(n), link] },
   DOC_REMIND: { name: 'uyir_document_reminder',     params: (n, link) => [first(n), link] },
@@ -41,19 +38,18 @@ export const WA_TEMPLATES = {
   REJECTED:   { name: 'uyir_registration_rejected', params: n => [first(n), n.review_note || 'not specified'] },
   VERIFIED:   { name: 'uyir_verified_add_bank',     params: (n, link) => [first(n), link] },
   REG_LINK:   { name: 'uyir_registration_link',     params: (n, link) => [first(n), link] },   // resend outside the 24 h window
-  OTP:        { name: 'uyir_otp', auth: true,       params: (n, link, x) => [x.code] },
 };
 
 /** The nurse's WhatsApp number: the one they messaged us from, else their mobile. */
 export const waNumber = nurse => nurse.whatsapp_number || '91' + nurse.mobile;
 
 /** Payload stored on the message row, so the worker sends exactly what was decided at the time. */
-export function buildPayload(nurse, template, link, extra = {}) {
+export function buildPayload(nurse, template, link) {
   const t = WA_TEMPLATES[template];
   if (!t) return null;
   return {
-    to: waNumber(nurse), name: t.name, lang: config.WHATSAPP_LANG, ...(t.auth ? { auth: true } : {}),
-    params: t.params(nurse, link, extra).map(p => String(p).slice(0, 1000)),
+    to: waNumber(nurse), name: t.name, lang: config.WHATSAPP_LANG,
+    params: t.params(nurse, link).map(p => String(p).slice(0, 1000)),
   };
 }
 /** Free-text message: only allowed within 24 h of the nurse's last message to us. */
@@ -82,11 +78,7 @@ async function sendToMeta(p) {
         messaging_product: 'whatsapp', to: p.to, type: 'template',
         template: {
           name: p.name, language: { code: p.lang },
-          components: [
-            { type: 'body', parameters: p.params.map(text => ({ type: 'text', text })) },
-            // Authentication templates carry the code again on their "Copy code" button.
-            ...(p.auth ? [{ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: p.params[0] }] }] : []),
-          ],
+          components: [{ type: 'body', parameters: p.params.map(text => ({ type: 'text', text })) }],
         },
       }),
     signal: AbortSignal.timeout(15_000),
@@ -97,15 +89,6 @@ async function sendToMeta(p) {
   // 429 / 5xx / throttling codes are worth retrying; other 4xx (bad number, template not approved…) are not.
   const retry = res.status === 429 || res.status >= 500 || [4, 80007, 130429, 131048, 131056].includes(err.code);
   return { error: `${res.status} ${err.code ?? ''} ${err.message || 'send failed'}`.trim(), retry };
-}
-
-/**
- * Send right now, bypassing the queue. Used for the OTP: the nurse is waiting for it, and the
- * code must never be written to the database. Returns { id } | { error } | { simulated }.
- */
-export async function sendNow(payload) {
-  if (PROVIDER !== 'meta') return { id: null, simulated: true };
-  try { return await sendToMeta(payload); } catch (e) { return { error: e.message }; }
 }
 
 /** Send one batch of due messages. Returns how many were attempted. */

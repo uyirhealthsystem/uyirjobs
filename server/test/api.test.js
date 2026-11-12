@@ -80,20 +80,19 @@ async function login(username, password, expect = 200) {
     return { status: res.status, body: res.headers.get('content-type')?.includes('json') ? await res.json() : await res.text() };
   };
 }
-const pub = async (path, body, session) => {
-  const res = await fetch(`${B}/api/public/reg/${path}`, { method: body !== undefined ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(session ? { 'x-reg-session': session } : {}) }, body: body !== undefined ? JSON.stringify(body) : undefined });
+const pub = async (path, body) => {
+  const res = await fetch(`${B}/api/public/reg/${path}`, { method: body !== undefined ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' }, body: body !== undefined ? JSON.stringify(body) : undefined });
   return { status: res.status, body: await res.json() };
 };
 // Documents are uploaded as multipart/form-data (type + file), the way the React portal sends them.
-const uploadDoc = async (t, session, type, buf, filename = 'x.pdf', mime = 'application/pdf') => {
+const uploadDoc = async (t, type, buf, filename = 'x.pdf', mime = 'application/pdf') => {
   const form = new FormData();
   form.append('type', type);
   form.append('file', new Blob([buf], { type: mime }), filename);
-  const res = await fetch(`${B}/api/public/reg/${t}/documents`, { method: 'POST', headers: session ? { 'x-reg-session': session } : {}, body: form });
+  const res = await fetch(`${B}/api/public/reg/${t}/documents`, { method: 'POST', body: form });
   return { status: res.status, body: await res.json() };
 };
 const tokenOf = async (staff, id) => new URL((await staff('/api/nurses/' + id)).body.nurse.registration_url).searchParams.get('t');
-const otpSession = async t => (await pub(`${t}/verify`, { otp: (await pub(`${t}/otp`, {})).body.dev_otp })).body.session;
 const DETAILS = { consent: true, address: 'x', taluk: 'y', qualification: 'GNM Diploma', council_reg_no: 'TN1', work_preference: 'Part-time' };
 
 test('full flow: add & invite → nurse registers → documents → review → verified → bank details', async () => {
@@ -108,20 +107,20 @@ test('full flow: add & invite → nurse registers → documents → review → v
   await sayHi('919999900001', `Hi Uyir ${n.nurse.wa_code}`);   // nurse taps the link in the SMS
 
   const t = await tokenOf(admin, id);
-  const otp = (await pub(`${t}/otp`, {})).body.dev_otp;
-  assert.equal((await pub(`${t}/verify`, { otp: '000000' })).status, 400);
-  const session = (await pub(`${t}/verify`, { otp })).body.session;
-  assert.equal((await pub(`${t}/details`, { ...DETAILS, consent: false }, session)).status, 400, 'consent required');
-  assert.equal((await pub(`${t}/details`, DETAILS, session)).status, 200);
+  // No OTP: the personal link opens the form straight away.
+  assert.equal((await pub(`${t}/otp`, {})).status, 404, 'OTP endpoint removed');
+  assert.equal((await pub(`${t}/form`)).body.nurse.status, 'INVITED');
+  assert.equal((await pub(`${t}/details`, { ...DETAILS, consent: false })).status, 400, 'consent required');
+  assert.equal((await pub(`${t}/details`, DETAILS)).status, 200);
   assert.equal((await admin('/api/nurses/' + id)).body.nurse.status, 'REGISTERED');
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'SUBMITTED' })).status, 409, 'staff cannot submit for the nurse');
 
   const pdf = readFileSync(join(DATA_DIR, 'uploads', 'demo-sample.pdf'));
-  assert.equal((await pub(`${t}/submit-docs`, {}, session)).status, 400, 'cannot submit with missing docs');
-  assert.equal((await uploadDoc(t, session, 'GOVT_ID', Buffer.from('not a pdf'))).status, 400, 'content sniffed');
-  for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) assert.equal((await uploadDoc(t, session, type, pdf)).status, 200);
-  assert.equal((await pub(`${t}/payout`, { account_holder: 'x' }, session)).status, 409, 'bank details only after verification');
-  assert.equal((await pub(`${t}/submit-docs`, {}, session)).status, 200);
+  assert.equal((await pub(`${t}/submit-docs`, {})).status, 400, 'cannot submit with missing docs');
+  assert.equal((await uploadDoc(t, 'GOVT_ID', Buffer.from('not a pdf'))).status, 400, 'content sniffed');
+  for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) assert.equal((await uploadDoc(t, type, pdf)).status, 200);
+  assert.equal((await pub(`${t}/payout`, { account_holder: 'x' })).status, 409, 'bank details only after verification');
+  assert.equal((await pub(`${t}/submit-docs`, {})).status, 200);
 
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'VERIFIED' })).status, 409, 'docs must be reviewed first');
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'REJECTED' })).status, 400, 'reason required');
@@ -129,9 +128,9 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'VERIFIED' })).status, 200);
 
   const bank = { account_holder: 'Kavya T', account_number: '123456789012', account_number_confirm: '123456789012', ifsc: 'sbin0001234' };
-  assert.equal((await pub(`${t}/payout`, { ...bank, account_number_confirm: '1' }, session)).status, 400, 'account numbers must match');
-  assert.equal((await pub(`${t}/payout`, { ...bank, ifsc: 'BAD' }, session)).status, 400, 'IFSC validated');
-  assert.equal((await pub(`${t}/payout`, bank, session)).status, 200);
+  assert.equal((await pub(`${t}/payout`, { ...bank, account_number_confirm: '1' })).status, 400, 'account numbers must match');
+  assert.equal((await pub(`${t}/payout`, { ...bank, ifsc: 'BAD' })).status, 400, 'IFSC validated');
+  assert.equal((await pub(`${t}/payout`, bank)).status, 200);
 
   n = (await admin('/api/nurses/' + id)).body;
   assert.equal(n.nurse.status, 'VERIFIED');
@@ -139,7 +138,7 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.equal(n.nurse.payout_account_enc, undefined, 'encrypted account number never leaves the server');
   assert.equal(n.nurse.payout_account_last4, '9012');
   assert.deepEqual(n.messages.map(m => `${m.channel}:${m.template}`).reverse(),
-    ['sms:INVITE', 'sms:INVITE_AGAIN', 'whatsapp:REG_LINK', 'whatsapp:OTP', 'whatsapp:REG_DONE', 'whatsapp:VERIFIED']);
+    ['sms:INVITE', 'sms:INVITE_AGAIN', 'whatsapp:REG_LINK', 'whatsapp:REG_DONE', 'whatsapp:VERIFIED']);
 
   const csv = await admin('/api/nurses/export.csv?q=' + id);
   assert.match(csv.body, /council_reg_no/);
@@ -150,11 +149,11 @@ test('full flow: add & invite → nurse registers → documents → review → v
 test('experience documents are required only when experience is declared', async () => {
   const admin = await login('tenkasi.admin', 'Tenkasi@123');
   const { id } = (await admin('/api/nurses', { name: 'Exp Test', mobile: '9999900003', invite: true })).body;
-  const t = await tokenOf(admin, id), session = await otpSession(t);
-  await pub(`${t}/details`, { ...DETAILS, experience_years: 0 }, session);
-  assert.ok(!(await pub(`${t}/form`, undefined, session)).body.missing.includes('EXPERIENCE'));
-  await pub(`${t}/details`, { ...DETAILS, experience_years: 4 }, session);
-  assert.ok((await pub(`${t}/form`, undefined, session)).body.missing.includes('EXPERIENCE'));
+  const t = await tokenOf(admin, id);
+  await pub(`${t}/details`, { ...DETAILS, experience_years: 0 });
+  assert.ok(!(await pub(`${t}/form`, undefined)).body.missing.includes('EXPERIENCE'));
+  await pub(`${t}/details`, { ...DETAILS, experience_years: 4 });
+  assert.ok((await pub(`${t}/form`, undefined)).body.missing.includes('EXPERIENCE'));
 });
 
 test('District Admins are confined to their own district', async () => {
@@ -282,11 +281,11 @@ test('WhatsApp: correction reaches the nurse; delivery status comes back by webh
   const { id } = (await admin('/api/nurses', { name: 'Meena Wa', mobile: '9999900055', invite: true })).body;
   assert.ok(!waSent.some(m => m.body.to === '919999900055'), 'no WhatsApp without opt-in');
 
-  const t = await tokenOf(admin, id), session = await otpSession(t);
-  await pub(`${t}/details`, { ...DETAILS, consent_whatsapp: true }, session);
+  const t = await tokenOf(admin, id);
+  await pub(`${t}/details`, { ...DETAILS, consent_whatsapp: true });
   const pdf = readFileSync(join(DATA_DIR, 'uploads', 'demo-sample.pdf'));
-  for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) await uploadDoc(t, session, type, pdf);
-  await pub(`${t}/submit-docs`, {}, session);
+  for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) await uploadDoc(t, type, pdf);
+  await pub(`${t}/submit-docs`, {});
   const doc = (await admin('/api/nurses/' + id)).body.documents.find(d => d.type === 'COUNCIL_REG');
   await admin(`/api/nurses/${id}/documents/${doc.id}/review`, { status: 'CORRECTION', note: 'Certificate is blurred' });
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'CORRECTION_REQUIRED', note: 'Council certificate is blurred' })).status, 200);
@@ -334,7 +333,7 @@ function sayHi(from, text, id = 'wamid.IN' + ++inboundSeq) {
     .then(async r => { assert.equal(r.status, 200); return r.json(); });
 }
 
-test('invite SMS opens our WhatsApp; "Hi" with the code gets the registration link', async () => {
+test('invite SMS carries the registration link; a nurse who says "Hi" on WhatsApp is still matched', async () => {
   const admin = await login('tenkasi.admin', 'Tenkasi@123');
   const made = (await admin('/api/nurses', { name: 'Anitha Flow', mobile: '9999900121', invite: true })).body;
   assert.deepEqual(made.notified, ['sms']);
@@ -343,9 +342,9 @@ test('invite SMS opens our WhatsApp; "Hi" with the code gets the registration li
   assert.match(code, /^UY[2-9A-HJ-NP-Z]{6}$/);
   const sms = n.messages.find(m => m.template === 'INVITE');
   assert.equal(sms.channel, 'sms');
-  assert.ok(sms.body.includes(`https://wa.me/${BUSINESS}?text=Hi%20Uyir%20${code}`), sms.body);
-  assert.ok(!sms.body.includes('/register?t='), 'registration link is not in the SMS');
-  assert.ok(!waSent.some(m => m.body.to === '919999900121'), 'no WhatsApp before the nurse says Hi');
+  assert.ok(sms.body.includes('/register?t=' + n.nurse.reg_token), 'registration link in the SMS: ' + sms.body);
+  assert.ok(!sms.body.includes('wa.me'), 'no WhatsApp chat link in the SMS');
+  assert.ok(!waSent.some(m => m.body.to === '919999900121'), 'no WhatsApp before the nurse messages us');
 
   // The nurse's WhatsApp is on a different number from the mobile we had.
   await sayHi('918888800121', `Hi Uyir ${code}`, 'wamid.DUP1');
@@ -367,17 +366,9 @@ test('invite SMS opens our WhatsApp; "Hi" with the code gets the registration li
   assert.deepEqual(resend.body.notified, ['whatsapp']);
   n = (await admin('/api/nurses/' + made.id)).body;
   assert.equal(n.messages.filter(m => m.channel === 'sms').length, 1, 'still only the first SMS');
-
-  // OTP goes to the WhatsApp number (Authentication template, Copy-code button), never stored.
-  const otp = await pub(`${n.nurse.reg_token}/otp`, {});
-  assert.equal(otp.status, 200);
-  const otpMsg = waSent.find(m => m.body.to === '918888800121' && m.body.template?.name === 'uyir_otp');
-  assert.equal(otpMsg.body.template.components[0].parameters[0].text, otp.body.dev_otp);
-  assert.equal(otpMsg.body.template.components[1].parameters[0].text, otp.body.dev_otp);
-  assert.ok(!JSON.stringify((await admin('/api/nurses/' + made.id)).body.messages).includes(otp.body.dev_otp), 'OTP code not stored');
 });
 
-test('WhatsApp inbound: unknown sender, match by number, Do Not Contact, failed OTP retry', async () => {
+test('WhatsApp inbound: unknown sender, match by number, Do Not Contact', async () => {
   const admin = await login('tenkasi.admin', 'Tenkasi@123');
 
   await sayHi('917777700001', 'Hi');
@@ -399,14 +390,6 @@ test('WhatsApp inbound: unknown sender, match by number, Do Not Contact, failed 
   await new Promise(r => setTimeout(r, 400));
   assert.ok(!waSent.some(m => m.body.to === '919999900141'));
   assert.ok((await admin('/api/nurses/' + dnc)).body.events.some(e => /Do Not Contact; no reply/.test(e.note || '')));
-
-  // OTP to a number that isn't on WhatsApp: clear error, and the nurse can retry straight away.
-  const bad = (await admin('/api/nurses', { name: 'Not On Wa', mobile: '9999900199', invite: true })).body.id;
-  const t = await tokenOf(admin, bad);
-  const r1 = await pub(`${t}/otp`, {});
-  assert.equal(r1.status, 502);
-  assert.match(r1.body.error, /WhatsApp/);
-  assert.equal((await pub(`${t}/otp`, {})).status, 502, 'not rate-limited after a failed send');
 });
 
 test('Call / SMS from the admin phone, and the call status log', async () => {
@@ -415,18 +398,26 @@ test('Call / SMS from the admin phone, and the call status log', async () => {
   const d = (await admin('/api/nurses/' + id)).body;
   assert.equal(d.contact.tel, 'tel:+919999900151');
   assert.ok(d.contact.sms.startsWith('sms:+919999900151?body='));
-  // The SMS carries the WhatsApp chat link with this nurse's code, so their "Hi" is matched.
-  assert.ok(d.nurse.wa_code);
-  assert.ok(d.contact.sms_body.includes(encodeURIComponent(`Hi Uyir ${d.nurse.wa_code}`)));
+  // The SMS carries the nurse's personal registration link.
+  const t = new URL(d.nurse.registration_url).searchParams.get('t');
+  assert.ok(t && d.contact.sms_body.includes('/register?t=' + t), d.contact.sms_body);
   assert.equal(d.nurse.status, 'NEW', 'opening the page does not invite the nurse');
+  assert.equal((await pub(t)).status, 404, 'link not active before the nurse is invited');
 
   assert.equal((await admin(`/api/nurses/${id}/contact`, { channel: 'call' })).status, 200);
   assert.equal((await admin(`/api/nurses/${id}/contact`, { channel: 'sms' })).status, 200);
+  // Sending the SMS from the admin's phone is the invite: the link now opens the form, and no
+  // system SMS is recorded on top of the admin's own.
+  const after = (await admin('/api/nurses/' + id)).body;
+  assert.equal(after.nurse.status, 'INVITED');
+  assert.equal(new URL(after.nurse.registration_url).searchParams.get('t'), t, 'same link as in the SMS');
+  assert.ok(!after.messages.some(m => m.channel === 'sms'));
+  assert.equal((await pub(`${t}/form`)).body.nurse.status, 'INVITED');
   assert.equal((await admin(`/api/nurses/${id}/call-log`, { outcome: 'BOGUS' })).status, 400);
   assert.equal((await admin(`/api/nurses/${id}/call-log`, { outcome: 'CALL_BACK', note: 'Free after 6 pm' })).status, 200);
   const ev = (await admin('/api/nurses/' + id)).body.events;
   assert.ok(ev.some(e => e.type === 'call' && /Call started/.test(e.note)));
-  assert.ok(ev.some(e => e.type === 'sms' && /WhatsApp link/.test(e.note)));
+  assert.ok(ev.some(e => e.type === 'sms' && /registration link/.test(e.note)));
   assert.ok(ev.some(e => e.type === 'call' && e.note === 'Call status: Asked to call back later — Free after 6 pm' && e.actor === 'tenkasi.admin'));
 
   // Do Not Contact: no links, and the endpoints refuse.
@@ -437,25 +428,25 @@ test('Call / SMS from the admin phone, and the call status log', async () => {
   assert.equal((await admin(`/api/nurses/${id}/contact`, { channel: 'call' })).status, 409);
 });
 
-test('uploads: size limit, type from file contents, session required', async () => {
+test('uploads: size limit, type from file contents, valid link required', async () => {
   const admin = await login('tenkasi.admin', 'Tenkasi@123');
   const { id } = (await admin('/api/nurses', { name: 'Upload Test', mobile: '9999900161', invite: true })).body;
-  const t = await tokenOf(admin, id), session = await otpSession(t);
-  await pub(`${t}/details`, DETAILS, session);
+  const t = await tokenOf(admin, id);
+  await pub(`${t}/details`, DETAILS);
 
   const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)]);
-  assert.equal((await uploadDoc(t, null, 'GOVT_ID', png)).status, 401, 'needs the OTP session');
-  assert.equal((await uploadDoc(t, session, 'NOPE', png)).status, 400, 'unknown document type');
-  assert.equal((await uploadDoc(t, session, 'GOVT_ID', Buffer.alloc(5 * 1024 * 1024 + 10, 0x25))).status, 413, 'over 5 MB');
+  assert.equal((await uploadDoc('not-a-real-link-token', 'GOVT_ID', png)).status, 404, 'needs a valid registration link');
+  assert.equal((await uploadDoc(t, 'NOPE', png)).status, 400, 'unknown document type');
+  assert.equal((await uploadDoc(t, 'GOVT_ID', Buffer.alloc(5 * 1024 * 1024 + 10, 0x25))).status, 413, 'over 5 MB');
   // The browser says PDF, the bytes say PNG: stored as what it really is.
-  assert.equal((await uploadDoc(t, session, 'GOVT_ID', png, 'id.pdf', 'application/pdf')).status, 200);
+  assert.equal((await uploadDoc(t, 'GOVT_ID', png, 'id.pdf', 'application/pdf')).status, 200);
   const doc = (await admin('/api/nurses/' + id)).body.documents.find(d => d.type === 'GOVT_ID');
   assert.equal(doc.mime, 'image/png');
   const file = await admin(`/api/documents/${doc.id}/file`);
   assert.equal(file.status, 200, 'staff can open the stored file');
 
   // A second upload of the same type replaces the first.
-  assert.equal((await uploadDoc(t, session, 'GOVT_ID', png)).status, 200);
+  assert.equal((await uploadDoc(t, 'GOVT_ID', png)).status, 200);
   const live = (await admin('/api/nurses/' + id)).body.documents.filter(d => d.type === 'GOVT_ID' && d.status !== 'SUPERSEDED');
   assert.equal(live.length, 1);
 });

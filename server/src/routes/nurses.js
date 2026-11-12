@@ -9,7 +9,7 @@ import {
 } from '../domain/workflow.js';
 import { logEvent } from '../services/events.js';
 import { queueMessage, inviteChannel, manualSmsBody } from '../services/messaging.js';
-import { transition, missingRequiredDocs, ensureWaCode, CALL_OUTCOMES } from '../services/nurses.js';
+import { transition, missingRequiredDocs, ensureRegToken, CALL_OUTCOMES } from '../services/nurses.js';
 import { scope, isSuper, needSuper, canSee, loadVisibleNurse } from '../middleware/auth.js';
 
 export const nursesRouter = Router();
@@ -123,10 +123,10 @@ nursesRouter.get('/:id', async (req, res) => {
     n.stage_reached >= 2 ? missingRequiredDocs(n.id, n) : [],
   ]);
   const allowed = (TRANSITIONS[n.status] || []).filter(to => canTransition(n.status, to, user.role).ok);
-  // Call / SMS from the admin's own phone. The SMS carries the WhatsApp chat link with this nurse's code.
+  // Call / SMS from the admin's own phone. The SMS carries the nurse's personal registration link.
   const phone = '+91' + n.mobile;
-  if (!n.dnc && n.consent_sms) n.wa_code = await ensureWaCode(n);
-  const smsBody = !n.dnc && n.consent_sms ? manualSmsBody(n, n.wa_code) : null;
+  if (!n.dnc && n.consent_sms) n.reg_token = await ensureRegToken(n);
+  const smsBody = !n.dnc && n.consent_sms ? manualSmsBody(n) : null;
   const contact = {
     tel: n.dnc ? null : 'tel:' + phone,
     sms: smsBody ? `sms:${phone}?body=${encodeURIComponent(smsBody)}` : null,
@@ -210,8 +210,10 @@ nursesRouter.post('/:id/contact', async (req, res) => {
     await logEvent(n.id, 'call', { note: `Call started from admin's phone to ${n.mobile}`, user });
   } else if (channel === 'sms') {
     if (!n.consent_sms) throw httpError(409, 'The nurse has not consented to SMS');
-    const code = await ensureWaCode(n);
-    await logEvent(n.id, 'sms', { note: `SMS opened on admin's phone with the WhatsApp link (code ${code})`, user });
+    await ensureRegToken(n);
+    await logEvent(n.id, 'sms', { note: `SMS opened on admin's phone with the registration link`, user });
+    // The link only works once the nurse is invited. quiet: the admin's own SMS is the invite.
+    if (n.status === 'NEW') await transition(n.id, 'INVITED', { role: user.role, user, from: 'NEW', quiet: true }, 'Invited by SMS from admin phone');
   } else throw httpError(400, 'channel must be call or sms');
   await q(`UPDATE nurses SET last_contacted_at = now(), updated_at = now() WHERE id = ?`, n.id);
   res.json({ ok: true });

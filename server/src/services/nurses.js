@@ -50,8 +50,8 @@ export function transition(nurseId, to, ctx, note = null) {
 async function notify(id, from, to) {
   const n = await getNurse(id);
   switch (to) {
-    // Invite by SMS with the WhatsApp chat link; once the nurse has messaged us, a resend
-    // goes straight to WhatsApp with the registration link.
+    // Invite by SMS with the registration link; if the nurse has messaged us on WhatsApp, a resend
+    // goes to WhatsApp instead.
     case 'INVITED':             return inviteChannel(n) === 'whatsapp' ? queueMessage(n, 'REG_LINK') : queueMessage(n, from === 'INVITED' ? 'INVITE_AGAIN' : 'INVITE');
     case 'REGISTERED':          return queueMessage(n, 'REG_DONE');
     case 'CORRECTION_REQUIRED': return queueMessage(n, 'CORRECTION');
@@ -61,22 +61,13 @@ async function notify(id, from, to) {
 }
 
 /**
- * Give the nurse a WhatsApp code if they don't have one yet, so a link an admin sends from their
- * own phone ("Hi Uyir <code>") is matched to this nurse when they reply. Returns the code.
+ * Give the nurse a personal registration link token if they don't have one yet, so the SMS an
+ * admin sends from their own phone can carry the link. Returns the token.
  */
-export async function ensureWaCode(nurse) {
-  if (nurse.wa_code) return nurse.wa_code;
-  for (let i = 0; i < 5; i++) {
-    try {
-      await q(`UPDATE nurses SET wa_code = ? WHERE id = ? AND wa_code IS NULL`, newCode(), nurse.id);
-    } catch (e) {
-      if (e.code === '23505') continue;   // code already taken by another nurse: try another
-      throw e;
-    }
-    const row = await one(`SELECT wa_code FROM nurses WHERE id = ?`, nurse.id);
-    if (row?.wa_code) return row.wa_code;
-  }
-  throw httpError(500, 'Could not create a WhatsApp code');
+export async function ensureRegToken(nurse) {
+  if (nurse.reg_token) return nurse.reg_token;
+  const row = await one(`UPDATE nurses SET reg_token = COALESCE(reg_token, ?) WHERE id = ? RETURNING reg_token`, token(18), nurse.id);
+  return row.reg_token;
 }
 
 /** Which required documents (per policy and the nurse's details) are missing a live upload. */

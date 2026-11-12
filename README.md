@@ -1,14 +1,16 @@
 # Uyir Nurse Registration
 
-Collects nurse information statewide. Staff add nurses and send each one a personal registration link; the nurse verifies their mobile, fills in their details, uploads documents and, once verified, adds bank details. Access is by district: each **District Admin** manages their own district, and the **Super Admin** manages every district plus staff accounts.
+Collects nurse information statewide. Staff call each nurse and send them their personal registration link by SMS from their own phone; the nurse opens the link (no OTP), fills in their details, uploads documents and, once verified, adds bank details. Access is by district: each **District Admin** manages their own district, and the **Super Admin** manages every district plus staff accounts.
 
-This is not a CRM: there is no outreach queue, lead assignment or onboarding pipeline. Admins can call or SMS a nurse from their own phone and log the call status.
+This is not a CRM: there is no outreach queue, lead assignment or onboarding pipeline. Admins call or SMS a nurse from their own phone and log the call status.
 
 ```
-Not Invited ─SMS invite→ Invited ─"Hi" on WhatsApp, link sent→ (connected) ─nurse registers→ Registered (documents pending)
+Not Invited ─admin calls, taps "SMS registration link"→ Invited ─nurse opens link, registers→ Registered (documents pending)
   ─nurse submits→ Submitted ─review→ Verified | Correction Required | Rejected
 Correction Required ─nurse re-uploads→ Submitted        Verified → nurse adds bank details
 ```
+
+The registration link is the nurse's only credential (long and random, never shown in full to anyone but staff), so it should not be shared. There is no SMS gateway: messages the app records as "SMS" or "WhatsApp" are logged as `simulated` until a provider is connected; the admin's own SMS is what actually reaches the nurse.
 
 ## Stack
 

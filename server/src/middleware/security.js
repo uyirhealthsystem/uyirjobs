@@ -18,8 +18,7 @@ export function sameOrigin(req, res, next) {
   next();
 }
 
-// Per-instance limits (in-memory). They blunt password guessing and OTP / SMS abuse; the
-// database-level checks (OTP attempts, resend interval) remain the real guarantee across instances.
+// Per-instance limits (in-memory). They blunt password guessing and portal abuse.
 const limiter = (windowMs, limit, message, extra = {}) => rateLimit({
   windowMs, limit, standardHeaders: 'draft-8', legacyHeaders: false,
   skip: () => config.NODE_ENV === 'test',
@@ -29,9 +28,5 @@ const limiter = (windowMs, limit, message, extra = {}) => rateLimit({
 export const loginLimiter = limiter(15 * 60e3, 20, 'Too many sign-in attempts. Try again in a few minutes.', {
   skipSuccessfulRequests: true,
 });
-// Mobile carriers put many phones behind one IP (CGNAT), so per-IP limits on the nurse portal stay generous…
+// Mobile carriers put many phones behind one IP (CGNAT), so per-IP limits on the nurse portal stay generous.
 export const registrationLimiter = limiter(60e3, 300, 'Too many requests. Please wait a minute and try again.');
-// …and the OTP limit is per registration link, not per IP.
-export const otpLimiter = limiter(15 * 60e3, 6, 'Too many codes requested. Please wait and try again.', {
-  keyGenerator: req => 'otp:' + req.params.t,
-});

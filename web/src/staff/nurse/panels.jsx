@@ -76,7 +76,7 @@ export function ActionsPanel({ d }) {
       {n.status === 'SUBMITTED' && <div className="small muted" style={{ marginTop: 8 }}>Review each document below first. “Mark verified” needs every required document verified.</div>}
       {pendingTo && (
         <InlineForm
-          label={<><StatusPill status={pendingTo} /> — <b>reason required</b>, it is sent to the nurse on WhatsApp</>}
+          label={<><StatusPill status={pendingTo} /> — <b>reason required</b>, the nurse sees it when they open their registration link</>}
           placeholder="Reason" pending={act.isPending}
           onSubmit={note => act.mutate({ path: '/transition', body: { to: pendingTo, note } })}
           onCancel={() => setPendingTo(null)}
@@ -89,12 +89,11 @@ export function ActionsPanel({ d }) {
           </button>
         </div>
       )}
-      <div className="small" style={{ marginTop: 12 }}>
-        WhatsApp: {n.whatsapp_connected_at
-          ? <><b>connected</b> {when(n.whatsapp_connected_at)} from <span className="mono">+{n.whatsapp_number}</span>{n.wa_code && <> · code <span className="mono">{n.wa_code}</span></>}</>
-          : n.status === 'NEW' ? 'not invited yet'
-            : <span className="muted">waiting for the nurse to say Hi{n.wa_code && <> (code <span className="mono">{n.wa_code}</span>)</>}</span>}
-      </div>
+      {n.whatsapp_connected_at && (
+        <div className="small" style={{ marginTop: 12 }}>
+          WhatsApp: <b>connected</b> {when(n.whatsapp_connected_at)} from <span className="mono">+{n.whatsapp_number}</span>
+        </div>
+      )}
       {n.registration_url && (
         <div className="small muted" style={{ marginTop: 6 }}>
           Registration link: <a href={n.registration_url} target="_blank" rel="noopener noreferrer">{n.registration_url}</a>
@@ -187,12 +186,12 @@ export function ContactPanel({ d }) {
           ? <a className="btn primary" href={c.tel} onClick={() => { logContact('call'); toast('After the call, choose its status under “Call log”.'); document.getElementById('call-outcome')?.focus(); }}>📞 Call {n.mobile}</a>
           : <button className="btn" disabled title={c.blocked}>📞 Call</button>}
         {c.sms
-          ? <a className="btn" href={c.sms} onClick={() => logContact('sms')}>💬 SMS with WhatsApp link</a>
+          ? <a className="btn" href={c.sms} onClick={() => logContact('sms')}>💬 SMS registration link</a>
           : <button className="btn" disabled title={c.sms_blocked}>💬 SMS</button>}
       </div>
       <div className="small muted" style={{ marginTop: 6 }}>
         {c.blocked ? `Calls and SMS are blocked: ${c.blocked}.`
-          : 'Opens your phone’s dialer / SMS app.' + (c.sms_blocked ? ` SMS unavailable: ${c.sms_blocked}.` : ' The SMS has the WhatsApp link; when the nurse says Hi, they get their registration link.')}
+          : 'Opens your phone’s dialer / SMS app.' + (c.sms_blocked ? ` SMS unavailable: ${c.sms_blocked}.` : ' The SMS contains the nurse’s personal registration link; sending it marks the nurse as Invited.')}
       </div>
     </div>
   );

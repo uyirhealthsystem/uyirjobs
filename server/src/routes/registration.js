@@ -1,19 +1,19 @@
-// Nurse-facing registration portal API (public; the personal link token identifies the nurse):
-// OTP on WhatsApp → details & consent → documents (multipart upload → S3) → staff review →
-// bank details once verified. After OTP the browser sends X-Reg-Session (2-hour session).
+// Nurse-facing registration portal API (public). The personal link token in the URL identifies
+// the nurse; there is no OTP step. Staff send the link by SMS from their own phone after a call.
+// Details & consent → documents (multipart upload → S3) → staff review → bank details once verified.
+// The link is the nurse's only credential: it is long and random (reg_token), and the portal never
+// shows the full bank account number back (last 4 digits only).
 import { Router } from 'express';
 import multer from 'multer';
-import { createHash, randomInt } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { q, one, tx } from '../db/pool.js';
-import { config } from '../config.js';
 import { httpError } from '../lib/errors.js';
-import { token, sha256, encryptField } from '../lib/crypto.js';
+import { encryptField } from '../lib/crypto.js';
 import { STATUSES, DOC_TYPES, DISTRICTS, PAYOUT_STATUSES, IFSC_RE, requiredDocTypes } from '../domain/workflow.js';
 import { logEvent } from '../services/events.js';
-import { queueMessage } from '../services/messaging.js';
 import { transition, missingRequiredDocs } from '../services/nurses.js';
 import { storage, documentKey } from '../services/storage.js';
-import { otpLimiter, registrationLimiter } from '../middleware/security.js';
+import { registrationLimiter } from '../middleware/security.js';
 
 export const registrationRouter = Router();
 registrationRouter.use(registrationLimiter);
@@ -26,14 +26,9 @@ async function regNurse(t) {
   if (!n || n.status === 'NEW') throw httpError(404, 'This registration link is invalid or has expired');
   return n;
 }
-function requireRegSession(req, n) {
-  const s = req.get('x-reg-session');
-  if (!s || !n.reg_session || sha256(s) !== n.reg_session || !(new Date(n.reg_session_expires) > new Date())) throw httpError(401, 'Please verify your mobile number again');
-}
-/** Load the nurse for :t and check the session; puts the nurse on req.nurse. */
-const withSession = async (req, res, next) => {
+/** Load the nurse for the link token :t; puts the nurse on req.nurse. */
+const withNurse = async (req, res, next) => {
   req.nurse = await regNurse(req.params.t);
-  requireRegSession(req, req.nurse);
   next();
 };
 const mask = m => m.slice(0, 2) + '******' + m.slice(-2);
@@ -45,36 +40,9 @@ registrationRouter.get('/:t', async (req, res) => {
   res.json({ first_name: n.name.split(/\s+/)[0], masked_mobile: mask(n.mobile), docTypes: DOC_TYPES, districts: DISTRICTS });
 });
 
-registrationRouter.post('/:t/otp', otpLimiter, async (req, res) => {
-  const n = await regNurse(req.params.t);
-  if (n.otp_expires && new Date(n.otp_expires).getTime() - 9 * 60e3 > Date.now()) throw httpError(429, 'Please wait a minute before requesting another code');
-  const otp = String(randomInt(100000, 1000000));
-  await q(`UPDATE nurses SET otp_hash = ?, otp_expires = now() + interval '10 minutes', otp_attempts = 0 WHERE id = ?`, sha256(n.id + otp), n.id);
-  let via;
-  try { via = await queueMessage(n, 'OTP', { force: true, code: otp }); }   // requested by the nurse; sent at once
-  catch (e) { await q(`UPDATE nurses SET otp_hash = NULL, otp_expires = NULL WHERE id = ?`, n.id); throw e; }   // let them retry now
-  if (config.isDev) req.log.info({ nurseId: n.id, otp }, '[dev] OTP');
-  res.json({ ok: true, masked_mobile: mask(n.mobile), via, ...(config.isDev ? { dev_otp: otp } : {}) });
-});
-
-registrationRouter.post('/:t/verify', async (req, res) => {
-  const n = await regNurse(req.params.t);
-  if (!n.otp_hash || !(new Date(n.otp_expires) > new Date())) throw httpError(400, 'Code expired. Request a new one.');
-  if (n.otp_attempts >= 5) throw httpError(429, 'Too many attempts. Request a new code.');
-  if (sha256(n.id + String(req.body?.otp || '').trim()) !== n.otp_hash) {
-    await q(`UPDATE nurses SET otp_attempts = otp_attempts + 1 WHERE id = ?`, n.id);
-    throw httpError(400, 'Incorrect code');
-  }
-  const s = token(24);
-  await q(`UPDATE nurses SET otp_hash = NULL, otp_expires = NULL, reg_session = ?, reg_session_expires = now() + interval '2 hours',
-      mobile_verified_at = COALESCE(mobile_verified_at, now()) WHERE id = ?`, sha256(s), n.id);
-  if (!n.mobile_verified_at) await logEvent(n.id, 'registration', { note: 'Mobile verified by OTP', actor: 'nurse' });
-  res.json({ session: s });
-});
-
 const REG_FIELDS = ['email', 'address', 'taluk', 'block', 'qualification', 'council_reg_no', 'current_employment', 'experience_years', 'work_preference', 'preferred_locations', 'service_interests'];
 
-registrationRouter.get('/:t/form', withSession, async (req, res) => {
+registrationRouter.get('/:t/form', withNurse, async (req, res) => {
   const n = req.nurse;
   const [docs, missing] = await Promise.all([
     q(`SELECT id, type, filename, status, note, uploaded_at FROM documents WHERE nurse_id = ? AND status <> 'SUPERSEDED' ORDER BY id DESC`, n.id),
@@ -95,7 +63,7 @@ registrationRouter.get('/:t/form', withSession, async (req, res) => {
   });
 });
 
-registrationRouter.post('/:t/details', withSession, async (req, res) => {
+registrationRouter.post('/:t/details', withNurse, async (req, res) => {
   const n = req.nurse, body = req.body || {};
   if (!EDITABLE.includes(n.status)) throw httpError(409, 'Your details are locked while under review');
   if (!body.consent) throw httpError(400, 'Consent is required to register');
@@ -117,7 +85,7 @@ registrationRouter.post('/:t/details', withSession, async (req, res) => {
 const MAGIC = { 'application/pdf': [0x25, 0x50, 0x44, 0x46], 'image/jpeg': [0xff, 0xd8, 0xff], 'image/png': [0x89, 0x50, 0x4e, 0x47] };
 
 // multipart/form-data: type=<DOC_TYPE>, file=<PDF|JPG|PNG ≤ 5 MB>. Stored in S3, then recorded.
-registrationRouter.post('/:t/documents', withSession, upload.single('file'), async (req, res) => {
+registrationRouter.post('/:t/documents', withNurse, upload.single('file'), async (req, res) => {
   const n = req.nurse, type = String(req.body?.type || ''), file = req.file;
   if (!DOCS_OPEN.includes(n.status)) throw httpError(409, 'Documents cannot be changed right now');
   if (!DOC_TYPES[type]) throw httpError(400, 'Unknown document type');
@@ -140,7 +108,7 @@ registrationRouter.post('/:t/documents', withSession, upload.single('file'), asy
   res.json({ ok: true, missing: await missingRequiredDocs(n.id, n) });
 });
 
-registrationRouter.post('/:t/submit-docs', withSession, async (req, res) => {
+registrationRouter.post('/:t/submit-docs', withNurse, async (req, res) => {
   const n = req.nurse;
   const missing = await missingRequiredDocs(n.id, n);
   if (missing.length) throw httpError(400, `Still missing: ${missing.map(m => DOC_TYPES[m].label).join(', ')}`);
@@ -150,7 +118,7 @@ registrationRouter.post('/:t/submit-docs', withSession, async (req, res) => {
 });
 
 // Bank / payment details, collected once the nurse is verified. The account number is encrypted at rest.
-registrationRouter.post('/:t/payout', withSession, async (req, res) => {
+registrationRouter.post('/:t/payout', withNurse, async (req, res) => {
   const n = req.nurse, body = req.body || {};
   if (!PAYOUT_STATUSES.includes(n.status)) throw httpError(409, 'Payment details are collected after your documents are verified');
   const holder = String(body.account_holder || '').trim().slice(0, 120);

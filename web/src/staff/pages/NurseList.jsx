@@ -61,9 +61,9 @@ export function NurseList() {
           <div className="toolbar">
             <b>{selected.size} selected</b>
             <button className="btn sm primary" disabled={bulk.isPending} onClick={() => bulk.mutate([...selected])}>
-              {bulk.isPending ? 'Sending…' : 'Send registration links'}
+              {bulk.isPending ? 'Saving…' : 'Mark as invited'}
             </button>
-            <span className="small muted">Each gets an SMS with a link to chat with us on WhatsApp; when they say Hi, they get their registration link. Nurses already invited or on Do Not Contact are skipped.</span>
+            <span className="small muted">Activates each nurse’s registration link. No SMS is sent automatically: call each nurse and use “SMS registration link” on their page. Nurses already invited or on Do Not Contact are skipped.</span>
           </div>
         )}
 
@@ -176,7 +176,7 @@ function AddNurse({ onDone }) {
           </select>
         )}
         <input type="text" aria-label="Source" placeholder="Source (optional)" value={form.source} onChange={set('source')} />
-        <label className="small"><input type="checkbox" checked={form.invite} onChange={set('invite')} /> Send registration link now</label>
+        <label className="small"><input type="checkbox" checked={form.invite} onChange={set('invite')} /> Mark as invited (activates the registration link)</label>
         <button className="btn primary" disabled={create.isPending}>{create.isPending ? 'Creating…' : 'Create'}</button>
       </form>
     </div>

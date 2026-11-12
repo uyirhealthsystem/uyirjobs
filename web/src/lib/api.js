@@ -34,13 +34,12 @@ export const api = {
   patch: (path, body, opts) => request(path, { ...opts, method: 'PATCH', body: body ?? {} }),
 };
 
-/** Nurse portal API: the link token is in the path, the OTP session in a header. */
-export function regApi(t, getSession) {
+/** Nurse portal API: the personal link token in the path identifies the nurse. */
+export function regApi(t) {
   const base = `/api/public/reg/${encodeURIComponent(t)}`;
-  const headers = () => (getSession() ? { 'X-Reg-Session': getSession() } : {});
   return {
-    get: path => request(base + path, { headers: headers(), scope: 'reg' }),
-    post: (path, body) => request(base + path, { method: 'POST', body: body ?? {}, headers: headers(), scope: 'reg' }),
+    get: path => request(base + path, { scope: 'reg' }),
+    post: (path, body) => request(base + path, { method: 'POST', body: body ?? {}, scope: 'reg' }),
   };
 }
 

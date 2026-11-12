@@ -31,7 +31,7 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
 
   return (
     <>
-      <div className="step">Step 2 of 4 · Your details</div>
+      <div className="step">Step 1 of 3 · Your details</div>
       <h1>{n.name}</h1>
       <p className="muted">{n.district} district · <span className="mono">{n.mobile}</span> ✓ verified</p>
       <form onSubmit={e => { e.preventDefault(); save.mutate(); }}>

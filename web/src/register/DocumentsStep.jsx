@@ -14,7 +14,7 @@ export function DocumentsStep({ reg, info, d, refresh, onEdit }) {
 
   return (
     <>
-      <div className="step">Step 3 of 4 · Documents</div>
+      <div className="step">Step 2 of 3 · Documents</div>
       <h1>Upload your documents</h1>
       {n.status === 'CORRECTION_REQUIRED' && <div className="banner warn"><b>Correction needed:</b> {n.review_note || 'please check the notes below'}</div>}
       <p className="muted small">PDF, JPG or PNG, up to 5 MB each. Photos must be clear and fully readable.</p>
