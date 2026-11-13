@@ -31,6 +31,7 @@ Resources:
   Repository:
     Type: AWS::ECR::Repository
     DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       RepositoryName: uyir-nurse-registration
       ImageTagMutability: IMMUTABLE        # every deploy is a new tag (the git commit SHA)
