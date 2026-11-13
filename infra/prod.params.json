@@ -11,9 +11,9 @@
   "DbAllocatedStorage": "20",
   "DbEngineVersion": "17",
   "UseNatGateway": "false",
-  "WhatsAppProvider": "simulated",
+  "WhatsAppProvider": "meta",
   "WhatsAppBusinessNumber": "919952407365",
-  "WhatsAppPhoneNumberId": "",
+  "WhatsAppPhoneNumberId": "1407960159074209",
   "WhatsAppLang": "en",
   "AlarmEmail": ""
 }
