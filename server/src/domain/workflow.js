@@ -114,3 +114,19 @@ export function normalizeMobile(raw) {
   const ten = digits.length > 10 && (digits.startsWith('91') || digits.startsWith('0')) ? digits.slice(-10) : digits;
   return /^[6-9]\d{9}$/.test(ten) ? ten : null;
 }
+
+// Registration-form fields: filled in by the nurse through their link; staff can correct them too.
+// (Bank details are not here: only the nurse enters those.)
+export const REG_FIELDS = ['email', 'address', 'taluk', 'block', 'qualification', 'council_reg_no', 'current_employment', 'experience_years', 'work_preference', 'preferred_locations', 'service_interests'];
+export const REG_FIELD_LABELS = {
+  email: 'Email', address: 'Address', taluk: 'Taluk', block: 'Block', qualification: 'Qualification', council_reg_no: 'Council reg. no.',
+  current_employment: 'Current employment', experience_years: 'Experience (yrs)', work_preference: 'Work preference',
+  preferred_locations: 'Preferred locations', service_interests: 'Service interests',
+};
+/** One registration field from a form: trimmed text (empty → null), experience as a number 0–60. Throws a message on bad input. */
+export function cleanRegField(k, raw) {
+  const v = raw == null ? null : String(raw).trim().slice(0, 1000) || null;
+  if (k === 'experience_years') return v == null ? null : Math.max(0, Math.min(60, Number(v) || 0));
+  if (k === 'email' && v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) throw new Error('Invalid email address');
+  return v;
+}

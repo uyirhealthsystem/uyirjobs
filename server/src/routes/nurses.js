@@ -6,18 +6,30 @@ import { httpError } from '../lib/errors.js';
 import { csvCell } from '../lib/csv.js';
 import {
   STATUSES, DOC_TYPES, TRANSITIONS, canTransition, normalizeDistrict, normalizeMobile, requiredDocTypes,
+  REG_FIELDS, REG_FIELD_LABELS, cleanRegField,
 } from '../domain/workflow.js';
 import { logEvent } from '../services/events.js';
 import { queueMessage, inviteChannel, manualSmsBody } from '../services/messaging.js';
 import { transition, missingRequiredDocs, ensureRegToken, CALL_OUTCOMES } from '../services/nurses.js';
+import { eraseNurse } from '../services/erase.js';
 import { scope, isSuper, needSuper, canSee, loadVisibleNurse } from '../middleware/auth.js';
 
 export const nursesRouter = Router();
 const str = v => (Array.isArray(v) ? String(v[0] ?? '') : v == null ? '' : String(v));
 const channels = c => (c ? [c] : []);
 
+// A deleted record can still be opened (to see that it was deleted, by whom and why) but not changed.
+// Delete itself is allowed again: it retries erasing the files if that failed the first time.
+nursesRouter.use('/:id', async (req, res, next) => {
+  if (req.method === 'GET' || req.params.id === 'bulk' || req.path === '/delete') return next();
+  const n = await one(`SELECT deleted_at FROM nurses WHERE id = ?`, req.params.id);
+  if (n?.deleted_at) throw httpError(409, 'This record was deleted and can no longer be changed');
+  next();
+});
+
 function nurseFilter(user, qs) {
   const { w, v } = scope(user);
+  w.push('n.deleted_at IS NULL');
   if (isSuper(user) && str(qs.district)) { w.push('n.district = ?'); v.push(str(qs.district)); }
   if (str(qs.status)) {
     const ss = str(qs.status).split(',').filter(s => STATUSES[s]);
@@ -100,7 +112,7 @@ nursesRouter.post('/bulk', async (req, res) => {
   if (body.action !== 'invite') throw httpError(400, 'Unknown action');
   const ids = Array.isArray(body.ids) ? body.ids.slice(0, 5000).map(String) : [];
   if (!ids.length) throw httpError(400, 'No nurses selected');
-  const visible = (await q(`SELECT * FROM nurses WHERE id = ANY(?)`, ids)).filter(n => canSee(user, n));
+  const visible = (await q(`SELECT * FROM nurses WHERE id = ANY(?) AND deleted_at IS NULL`, ids)).filter(n => canSee(user, n));
   let done = 0; const skipped = [];
   for (const n of visible) {
     if (n.dnc) { skipped.push({ id: n.id, reason: 'Do Not Contact' }); continue; }
@@ -115,12 +127,13 @@ nursesRouter.post('/bulk', async (req, res) => {
 nursesRouter.get('/:id', async (req, res) => {
   const { user } = req;
   const n = await loadVisibleNurse(user, req.params.id);
-  const [events, documents, messages, missingDocs] = await Promise.all([
+  const [events, documents, messages, missingDocs, deletedBy] = await Promise.all([
     q(`SELECT * FROM events WHERE nurse_id = ? ORDER BY id DESC`, n.id),
     q(`SELECT d.id, d.type, d.filename, d.mime, d.size, d.status, d.note, d.uploaded_at, d.reviewed_at, u.name reviewer
         FROM documents d LEFT JOIN users u ON u.id = d.reviewed_by WHERE d.nurse_id = ? ORDER BY d.id DESC`, n.id),
     q(`SELECT * FROM messages WHERE nurse_id = ? ORDER BY id DESC LIMIT 50`, n.id),
-    n.stage_reached >= 2 ? missingRequiredDocs(n.id, n) : [],
+    n.stage_reached >= 2 && !n.deleted_at ? missingRequiredDocs(n.id, n) : [],
+    n.deleted_by ? one(`SELECT name FROM users WHERE id = ?`, n.deleted_by) : null,
   ]);
   const allowed = (TRANSITIONS[n.status] || []).filter(to => canTransition(n.status, to, user.role).ok);
   // Call / SMS from the admin's own phone. The SMS carries the nurse's personal registration link.
@@ -137,7 +150,7 @@ nursesRouter.get('/:id', async (req, res) => {
   // Never send secrets to the browser: OTP / session hashes and the encrypted account number stay server-side.
   const { reg_session, reg_session_expires, otp_hash, otp_expires, otp_attempts, payout_account_enc, call_attempts, consent_call, assigned_to, ...safe } = n;
   res.json({
-    nurse: { ...safe, registration_url: n.reg_token ? `${config.publicUrl}/register?t=${n.reg_token}` : null },
+    nurse: { ...safe, registration_url: n.reg_token ? `${config.publicUrl}/register?t=${n.reg_token}` : null, deleted_by_name: deletedBy?.name ?? null },
     events, documents, messages, allowed, missingDocs, contact, requiredDocs: requiredDocTypes(n),
   });
 });
@@ -162,14 +175,33 @@ nursesRouter.patch('/:id', async (req, res) => {
     up.district = d;
   }
   if (body.source != null && str(body.source) !== (n.source ?? '')) up.source = str(body.source).slice(0, 200);
+  // Registration-form fields (staff correcting what the nurse entered). Bank details stay nurse-only.
+  for (const k of REG_FIELDS) {
+    if (body[k] === undefined) continue;
+    let v;
+    try { v = cleanRegField(k, body[k]); } catch (e) { throw httpError(400, e.message); }
+    if (v !== n[k] && !(v == null && n[k] == null)) up[k] = v;
+  }
   const keys = Object.keys(up);
   if (keys.length) {
     await tx(async () => {
       await q(`UPDATE nurses SET ${keys.map(k => `${k} = ?`).join(', ')}, updated_at = now() WHERE id = ?`, ...keys.map(k => up[k]), n.id);
-      await logEvent(n.id, 'note', { note: 'Edited ' + keys.map(k => `${k}: ${n[k] ?? '—'} → ${up[k]}`).join('; '), user });
+      await logEvent(n.id, 'note', { note: 'Edited ' + keys.map(k => `${REG_FIELD_LABELS[k] || k}: ${n[k] ?? '—'} → ${up[k] ?? '—'}`).join('; '), user });
     });
   }
   res.json({ ok: true });
+});
+
+// Super Admin: delete a nurse. Erases personal data and documents (see services/erase.js).
+// The admin must give a reason and type the nurse ID to confirm.
+nursesRouter.post('/:id/delete', async (req, res) => {
+  const { user } = req, body = req.body || {};
+  needSuper(user);
+  const n = await loadVisibleNurse(user, req.params.id);
+  const reason = str(body.reason).trim().slice(0, 500);
+  if (!reason) throw httpError(400, 'Give a reason for deleting this record');
+  if (str(body.confirm).trim().toUpperCase() !== n.id) throw httpError(400, `Type the nurse ID (${n.id}) to confirm`);
+  res.json({ ok: true, ...(await eraseNurse(n.id, user, reason)) });
 });
 
 // Staff actions: INVITED (send / resend link), VERIFIED, CORRECTION_REQUIRED, REJECTED.

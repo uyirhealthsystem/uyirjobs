@@ -118,14 +118,16 @@ Task-role IAM policy (least privilege; no static access keys anywhere):
   "Statement": [
     { "Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject"],
       "Resource": "arn:aws:s3:::uyirjobs-documents-prod/documents/*" },
-    { "Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::uyirjobs-documents-prod" },
+    { "Effect": "Allow", "Action": ["s3:DeleteObject", "s3:DeleteObjectVersion"],
+      "Resource": "arn:aws:s3:::uyirjobs-documents-prod/documents/*" },
+    { "Effect": "Allow", "Action": ["s3:ListBucket", "s3:ListBucketVersions"], "Resource": "arn:aws:s3:::uyirjobs-documents-prod" },
     { "Effect": "Allow", "Action": ["kms:GenerateDataKey", "kms:Decrypt"],
       "Resource": "arn:aws:kms:ap-south-1:<account>:key/<s3-key-id>" }
   ]
 }
 ```
 
-(No `DeleteObject`: superseded documents are kept for audit; lifecycle rules handle expiry.)
+(Delete is used only when a Super Admin deletes a nurse: every version of that nurse's documents is erased. Superseded documents are otherwise kept for audit; lifecycle rules handle expiry.)
 
 ## Availability targets
 

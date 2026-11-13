@@ -2,7 +2,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes, scryptSync, createHmac } from 'node:crypto';
@@ -538,4 +538,61 @@ test('security: cross-site requests refused, secrets never returned, headers set
   const n = (await sup('/api/nurses?status=INVITED&size=1')).body.rows[0];
   const detail = (await sup('/api/nurses/' + n.id)).body.nurse;
   for (const k of ['reg_session', 'otp_hash', 'payout_account_enc']) assert.ok(!(k in detail), `${k} not exposed`);
+});
+
+test('staff correct registration answers; each edit is in the history', async () => {
+  const admin = await login('tenkasi.admin', 'Tenkasi@123');
+  const { id } = (await admin('/api/nurses', { name: 'Edit Me', mobile: '9999900181', invite: true })).body;
+  await pub(`${await tokenOf(admin, id)}/details`, { ...DETAILS, address: 'Old street' });
+  assert.equal((await admin('/api/nurses/' + id, { email: 'not-an-email' }, 'PATCH')).status, 400);
+  assert.equal((await admin('/api/nurses/' + id, { address: ' 12 New Street ', experience_years: '7', block: '' }, 'PATCH')).status, 200);
+  const d = (await admin('/api/nurses/' + id)).body;
+  assert.equal(d.nurse.address, '12 New Street');
+  assert.equal(d.nurse.experience_years, 7);
+  assert.ok(d.events.some(e => /Address: Old street → 12 New Street/.test(e.note || '') && /Experience/.test(e.note)), 'edit recorded');
+  const chennai = await login('chennai.admin', 'Chennai@123');
+  assert.equal((await chennai('/api/nurses/' + id, { address: 'x' }, 'PATCH')).status, 404, 'other districts cannot edit');
+});
+
+test('Super Admin deletes a nurse: personal data and documents erased, ID and audit kept', async () => {
+  const admin = await login('tenkasi.admin', 'Tenkasi@123');
+  const sup = await login('admin', 'Admin@123');
+  const { id } = (await admin('/api/nurses', { name: 'Erase Me', mobile: '9999900191', invite: true })).body;
+  const t = await tokenOf(admin, id);
+  await pub(`${t}/details`, { ...DETAILS, email: 'erase@example.com', consent_whatsapp: true });
+  const pdf = readFileSync(join(DATA_DIR, 'uploads', 'demo-sample.pdf'));
+  await uploadDoc(t, 'GOVT_ID', pdf);
+  await sayHi('919999900191', 'Hi');
+  const dir = join(DATA_DIR, 'uploads', id);
+  assert.ok(existsSync(dir), 'document stored');
+
+  assert.equal((await admin(`/api/nurses/${id}/delete`, { reason: 'x', confirm: id })).status, 403, 'District Admins cannot delete');
+  assert.equal((await sup(`/api/nurses/${id}/delete`, { confirm: id })).status, 400, 'reason required');
+  assert.equal((await sup(`/api/nurses/${id}/delete`, { reason: 'Asked to be deleted', confirm: 'WRONG' })).status, 400, 'typed ID required');
+  const del = await sup(`/api/nurses/${id}/delete`, { reason: 'Nurse asked for erasure', confirm: id.toLowerCase() });
+  assert.equal(del.status, 200);
+  assert.equal(del.body.files_pending, false);
+  assert.ok(del.body.files_removed >= 1);
+  assert.ok(!existsSync(dir), 'documents erased from storage');
+
+  const d = (await sup('/api/nurses/' + id)).body;
+  assert.equal(d.nurse.name, 'Deleted record');
+  assert.notEqual(d.nurse.mobile, '9999900191');
+  for (const k of ['email', 'address', 'council_reg_no', 'whatsapp_number', 'registration_url', 'wa_code']) assert.equal(d.nurse[k], null, `${k} erased`);
+  assert.ok(d.nurse.deleted_at);
+  assert.equal(d.nurse.deletion_reason, 'Nurse asked for erasure');
+  assert.equal(d.documents.length, 0);
+  assert.ok(d.messages.every(m => m.body === ''), 'message texts erased');
+  assert.ok(d.events.every(e => e.note == null || /Record deleted by/.test(e.note)), 'history notes erased');
+  assert.ok(d.events.some(e => /Record deleted by .*Reason: Nurse asked for erasure/.test(e.note || '')), 'who and why kept');
+  assert.ok(d.events.some(e => e.type === 'status' && e.to_status === 'REGISTERED'), 'status history kept');
+
+  assert.equal((await pub(t)).status, 404, 'registration link no longer works');
+  assert.ok((await admin('/api/nurses/' + id)).body.nurse.deleted_at, 'District Admin opening it by link sees it is deleted');
+  assert.ok(!(await sup('/api/nurses?q=Erase')).body.rows.some(r => r.id === id), 'hidden from the list');
+  assert.equal((await sup('/api/nurses/' + id, { name: 'Back' }, 'PATCH')).status, 409, 'cannot be changed');
+  assert.equal((await sup(`/api/nurses/${id}/note`, { note: 'x' })).status, 409);
+  assert.equal((await sup(`/api/nurses/${id}/delete`, { reason: 'retry', confirm: id })).status, 200, 'delete again = retry files');
+  // The person can be registered again as a new record.
+  assert.equal((await admin('/api/nurses', { name: 'Erase Me Again', mobile: '9999900191' })).status, 200);
 });

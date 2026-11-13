@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { q, one, tx } from '../db/pool.js';
 import { httpError } from '../lib/errors.js';
 import { encryptField } from '../lib/crypto.js';
-import { STATUSES, DOC_TYPES, DISTRICTS, PAYOUT_STATUSES, IFSC_RE, requiredDocTypes, normalizeDistrict } from '../domain/workflow.js';
+import { STATUSES, DOC_TYPES, DISTRICTS, PAYOUT_STATUSES, IFSC_RE, requiredDocTypes, normalizeDistrict, REG_FIELDS } from '../domain/workflow.js';
 import { logEvent } from '../services/events.js';
 import { transition, missingRequiredDocs } from '../services/nurses.js';
 import { storage, documentKey } from '../services/storage.js';
@@ -43,8 +43,6 @@ registrationRouter.get('/:t', async (req, res) => {
 // Nurses who started on WhatsApp have no district yet (and only their WhatsApp profile name):
 // they give their name and district with their details.
 const needsProfile = n => !n.district;
-
-const REG_FIELDS = ['email', 'address', 'taluk', 'block', 'qualification', 'council_reg_no', 'current_employment', 'experience_years', 'work_preference', 'preferred_locations', 'service_interests'];
 
 registrationRouter.get('/:t/form', withNurse, async (req, res) => {
   const n = req.nurse;

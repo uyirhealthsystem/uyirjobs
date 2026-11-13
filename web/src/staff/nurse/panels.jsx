@@ -151,19 +151,91 @@ export function DocumentsPanel({ d }) {
   );
 }
 
+// Registration-form fields; staff can correct them (bank details stay nurse-only). Every edit is in the history.
+const EDIT_FIELDS = [
+  ['email', 'Email'], ['address', 'Address'], ['taluk', 'Taluk'], ['block', 'Block'], ['qualification', 'Qualification'],
+  ['council_reg_no', 'Council reg. no.'], ['current_employment', 'Current employment'], ['experience_years', 'Experience (yrs)'],
+  ['work_preference', 'Work preference'], ['preferred_locations', 'Preferred locations'], ['service_interests', 'Service interests'],
+];
+
 export function RegistrationPanel({ n }) {
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(() => Object.fromEntries(EDIT_FIELDS.map(([k]) => [k, n[k] ?? ''])));
+  const act = useNurseAction(n.id, { onSuccess: () => { setEditing(false); toast('Saved'); } });
   const reg = [['Email', n.email], ['Address', n.address], ['Taluk / Block', [n.taluk, n.block].filter(Boolean).join(' / ')], ['Qualification', n.qualification],
     ['Council reg. no.', n.council_reg_no], ['Current employment', n.current_employment], ['Experience (yrs)', n.experience_years], ['Work preference', n.work_preference],
     ['Preferred locations', n.preferred_locations], ['Service interests', n.service_interests], ['Mobile verified', when(n.mobile_verified_at)], ['Registered', when(n.registered_at)],
     ['Bank details', n.payout_added_at
       ? `${n.payout_account_holder} · a/c ••••${n.payout_account_last4} · ${n.payout_ifsc}${n.payout_upi ? ' · UPI ' + n.payout_upi : ''}`
       : n.status === 'VERIFIED' ? 'Pending — nurse adds these through their link' : '—']];
+  const filled = n.registered_at || EDIT_FIELDS.some(([k]) => n[k] != null && n[k] !== '');
   return (
     <div className="panel">
-      <h2>Registration details</h2>
-      {n.registered_at
+      <h2>Registration details {!editing && <button className="btn sm" style={{ float: 'right' }} onClick={() => setEditing(true)}>Edit</button>}</h2>
+      {editing ? (
+        <form onSubmit={e => { e.preventDefault(); act.mutate({ method: 'patch', body: form }); }}>
+          {EDIT_FIELDS.map(([k, label]) => (
+            <label key={k} className="f"><span>{label}</span>
+              {k === 'experience_years'
+                ? <input type="number" min="0" max="60" step="0.5" value={form[k]} onChange={e => setForm(f => ({ ...f, [k]: e.target.value }))} />
+                : <input type={k === 'email' ? 'email' : 'text'} value={form[k]} onChange={e => setForm(f => ({ ...f, [k]: e.target.value }))} maxLength={1000} />}
+            </label>
+          ))}
+          <div className="small muted" style={{ margin: '6px 0' }}>Bank details can only be entered by the nurse. Changes are recorded in the history.</div>
+          <div className="actions">
+            <button className="btn primary" disabled={act.isPending}>{act.isPending ? 'Saving…' : 'Save'}</button>
+            <button type="button" className="btn" onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </form>
+      ) : filled
         ? <dl className="kv">{reg.map(([k, v]) => <div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd>{v === 0 ? 0 : v || '—'}</dd></div>)}</dl>
         : <div className="muted">The nurse has not filled in the registration form yet.</div>}
+    </div>
+  );
+}
+
+/** Super Admin: delete the record (personal data and documents erased; the ID and history stay). */
+export function DeletePanel({ n }) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const act = useNurseAction(n.id, {
+    onSuccess: r => {
+      setOpen(false);
+      toast(r.files_pending ? 'Record deleted, but the documents could not be erased yet. Press Delete again to retry.' : 'Record deleted', !!r.files_pending);
+    },
+  });
+  const deleted = !!n.deleted_at;
+  return (
+    <div className="panel">
+      <h2>{deleted ? 'Retry erasing documents' : 'Delete record'}</h2>
+      {!open ? (
+        <>
+          <div className="small muted" style={{ marginBottom: 6 }}>
+            {deleted
+              ? 'Only needed if erasing the documents failed when the record was deleted (shown in the history).'
+              : 'Erases the personal details, registration answers, bank details, messages and uploaded documents of this nurse. The nurse ID and an entry saying who deleted it and why are kept. This cannot be undone.'}
+          </div>
+          <button className="btn sm danger" onClick={() => setOpen(true)}>{deleted ? 'Erase documents again…' : 'Delete this record…'}</button>
+        </>
+      ) : (
+        <form className="inline-form" onSubmit={e => { e.preventDefault(); act.mutate({ path: '/delete', body: { reason: reason || n.deletion_reason, confirm } }); }}>
+          {!deleted && (
+            <label className="f"><span>Reason *</span>
+              <input type="text" value={reason} onChange={e => setReason(e.target.value)} required maxLength={500} placeholder="e.g. Nurse asked for their data to be deleted (call on 13 Nov)" autoFocus />
+            </label>
+          )}
+          <label className="f"><span>Type <b className="mono">{n.id}</b> to confirm *</span>
+            <input type="text" value={confirm} onChange={e => setConfirm(e.target.value)} required autoComplete="off" />
+          </label>
+          <div className="actions">
+            <button className="btn danger" disabled={act.isPending || confirm.trim().toUpperCase() !== n.id}>{act.isPending ? 'Working…' : deleted ? 'Erase documents' : 'Delete permanently'}</button>
+            <button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

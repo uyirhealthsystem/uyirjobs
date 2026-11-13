@@ -283,10 +283,15 @@ Resources:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action: [s3:PutObject, s3:GetObject]          # no DeleteObject: documents are kept for audit
+                Action: [s3:PutObject, s3:GetObject]
+                Resource: !Sub '${DocumentsBucket.Arn}/documents/*'
+              # Deleting a nurse (Super Admin) erases their documents, every version. Nothing else
+              # deletes: replaced documents are kept for audit and expire through lifecycle rules.
+              - Effect: Allow
+                Action: [s3:DeleteObject, s3:DeleteObjectVersion]
                 Resource: !Sub '${DocumentsBucket.Arn}/documents/*'
               - Effect: Allow
-                Action: s3:ListBucket                          # HeadBucket health check
+                Action: [s3:ListBucket, s3:ListBucketVersions]   # HeadBucket health check; versions of one nurse's files
                 Resource: !GetAtt DocumentsBucket.Arn
               - Effect: Allow
                 Action: [kms:GenerateDataKey, kms:Decrypt]

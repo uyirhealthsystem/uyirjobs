@@ -9,6 +9,7 @@ const cnt = cond => `COUNT(*) FILTER (WHERE ${cond})`;
 dashboardRouter.get('/', async (req, res) => {
   const { user } = req;
   const { w, v } = scope(user);
+  w.push('n.deleted_at IS NULL');
   if (isSuper(user) && req.query.district) { w.push('n.district = ?'); v.push(String(req.query.district)); }
   const where = w.length ? 'WHERE ' + w.join(' AND ') : '';
   const statusCols = Object.keys(STATUSES).map(s => `${cnt(`n.status = '${s}'`)} "${s}"`).join(', ');

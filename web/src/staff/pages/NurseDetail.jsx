@@ -4,15 +4,15 @@ import { api } from '../../lib/api.js';
 import { when } from '../../lib/format.js';
 import { Loading, ErrorPanel } from '../../components/Loading.jsx';
 import { StatusPill } from '../../components/StatusPill.jsx';
-import { useAuth } from '../auth.jsx';
+import { useAuth, isSuper } from '../auth.jsx';
 import {
   ActionsPanel, DocumentsPanel, RegistrationPanel, ContactPanel, CallLogPanel, BasicDetailsPanel,
-  ConsentPanel, NotePanel, HistoryPanel, MessagesPanel, NEEDS_NOTE,
+  ConsentPanel, NotePanel, HistoryPanel, MessagesPanel, DeletePanel, NEEDS_NOTE,
 } from '../nurse/panels.jsx';
 
 export function NurseDetail() {
   const { id } = useParams();
-  const { meta } = useAuth();
+  const { meta, user } = useAuth();
   const navigate = useNavigate();
   const q = useQuery({ queryKey: ['nurse', id], queryFn: () => api.get('/api/nurses/' + encodeURIComponent(id)) });
 
@@ -35,6 +35,18 @@ export function NurseDetail() {
         {meta.funnel.map(f => <div key={f.stage} className={n.stage_reached >= f.stage ? 'on' : ''}><i />{f.label}</div>)}
       </div>
       <div style={{ height: 14 }} />
+      {n.deleted_at && (
+        <div className="banner dnc"><b>Deleted</b> {when(n.deleted_at)}{n.deleted_by_name && ` by ${n.deleted_by_name}`}. Reason: {n.deletion_reason}. Personal data and documents have been erased; the history is kept for audit.</div>
+      )}
+      {n.deleted_at ? (
+        <div className="grid2">
+          <div><HistoryPanel events={d.events} /></div>
+          <div>
+            <MessagesPanel messages={d.messages} />
+            {isSuper(user) && <DeletePanel n={n} />}
+          </div>
+        </div>
+      ) : <>
       {n.dnc && <div className="banner dnc"><b>Do Not Contact</b> since {when(n.dnc_at)} — {n.dnc_reason}. Invites and reminders are blocked.</div>}
       {n.review_note && NEEDS_NOTE.includes(n.status) && <div className="banner warn"><b>{st.label}:</b> {n.review_note}</div>}
 
@@ -53,8 +65,10 @@ export function NurseDetail() {
           <NotePanel n={n} />
           <HistoryPanel events={d.events} />
           <MessagesPanel messages={d.messages} />
+          {isSuper(user) && <DeletePanel n={n} />}
         </div>
       </div>
+      </>}
     </>
   );
 }

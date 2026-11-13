@@ -12,6 +12,7 @@ if (!DATABASE_URL || !/test/i.test(new URL(DATABASE_URL).pathname)) throw new Er
 
 const objects = new Map();   // key → { body, headers }
 const requests = [];
+const deleted = [];   // { key, version } removed through DeleteObjects
 const fakeS3 = createServer(async (req, res) => {
   const chunks = []; for await (const c of req) chunks.push(c);
   const url = new URL(req.url, 'http://x');
@@ -20,6 +21,24 @@ const fakeS3 = createServer(async (req, res) => {
   if (req.method === 'PUT') {
     objects.set(decodeURIComponent(url.pathname), { body: Buffer.concat(chunks), headers: req.headers });
     res.writeHead(200, { ETag: '"abc"' }); return res.end();
+  }
+  // Versioned bucket: every object has its current version plus an older one and a delete marker,
+  // so erasing has to remove all of them.
+  const isBucket = /^\/uyir-docs\/?$/.test(url.pathname);
+  if (req.method === 'GET' && isBucket && url.searchParams.has('versions')) {
+    const prefix = url.searchParams.get('prefix') || '';
+    const keys = [...objects.keys()].map(k => k.replace(/^\/uyir-docs\//, '')).filter(k => k.startsWith(prefix));
+    const xml = keys.map(k => `<Version><Key>${k}</Key><VersionId>v2</VersionId><IsLatest>true</IsLatest></Version><Version><Key>${k}</Key><VersionId>v1</VersionId><IsLatest>false</IsLatest></Version><DeleteMarker><Key>${k}</Key><VersionId>m1</VersionId><IsLatest>false</IsLatest></DeleteMarker>`).join('');
+    res.writeHead(200, { 'Content-Type': 'application/xml' });
+    return res.end(`<?xml version="1.0" encoding="UTF-8"?><ListVersionsResult><Name>uyir-docs</Name><Prefix>${prefix}</Prefix><IsTruncated>false</IsTruncated>${xml}</ListVersionsResult>`);
+  }
+  if (req.method === 'POST' && isBucket && url.searchParams.has('delete')) {
+    const body = Buffer.concat(chunks).toString();
+    const items = [...body.matchAll(/<Object><Key>([^<]+)<\/Key><VersionId>([^<]+)<\/VersionId><\/Object>/g)].map(m => ({ key: m[1], version: m[2] }));
+    deleted.push(...items);
+    for (const { key } of items) objects.delete('/uyir-docs/' + key);
+    res.writeHead(200, { 'Content-Type': 'application/xml' });
+    return res.end('<?xml version="1.0" encoding="UTF-8"?><DeleteResult></DeleteResult>');
   }
   res.writeHead(404); res.end();
 });
@@ -90,4 +109,20 @@ test('documents are written to S3 with KMS encryption and viewed through presign
   const other = await fetch(B + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'chennai.admin', password: 'Chennai@123' }) });
   const otherCookie = other.headers.get('set-cookie').split(';')[0];
   assert.equal((await json(`/api/documents/${doc.id}/file`, { cookie: otherCookie })).status, 404, 'other districts cannot open it');
+});
+
+test('deleting a nurse erases every version of their documents on S3', async () => {
+  const signIn = async (username, password) => (await fetch(B + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) })).headers.get('set-cookie').split(';')[0];
+  const sup = await signIn('admin', 'Admin@123');
+  const [key] = [...objects.keys()].filter(k => k.includes('/COUNCIL_REG/'));
+  const id = key.split('/')[3];
+  const before = objects.size;
+  const r = await json(`/api/nurses/${id}/delete`, { cookie: sup, body: { reason: 'Test erasure', confirm: id } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.files_pending, false);
+  assert.equal(r.body.files_removed, 3, 'current version, older version and delete marker');
+  assert.deepEqual(deleted.map(d => d.version).sort(), ['m1', 'v1', 'v2']);
+  assert.ok(deleted.every(d => d.key.startsWith(`documents/${id}/`)), 'only this nurse\'s files');
+  assert.equal(objects.size, before - 1);
+  assert.ok(![...objects.keys()].some(k => k.includes(`/${id}/`)));
 });

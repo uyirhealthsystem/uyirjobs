@@ -161,6 +161,11 @@ CREATE INDEX IF NOT EXISTS ix_messages_provider ON messages(provider_id) WHERE p
 -- Nurses who start on WhatsApp (SMS chat link → "Hi") get a record before anyone knows their
 -- district; they choose it in the registration form. Until then only Super Admins see them.
 ALTER TABLE nurses ALTER COLUMN district DROP NOT NULL;
+-- Deleting a nurse (Super Admin) erases their personal data and documents; the ID stays, with
+-- who deleted it, when and why, so counts and the audit trail remain correct.
+ALTER TABLE nurses ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+ALTER TABLE nurses ADD COLUMN IF NOT EXISTS deleted_by bigint REFERENCES users(id);
+ALTER TABLE nurses ADD COLUMN IF NOT EXISTS deletion_reason text;
 -- Session clean-up when a user's access changes.
 CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_id);
 `;
