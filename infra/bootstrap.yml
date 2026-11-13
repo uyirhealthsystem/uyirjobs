@@ -10,6 +10,15 @@ Parameters:
     Type: String
     Description: GitHub repository allowed to deploy, as owner/name (e.g. uyirjobs/nurse-registration).
     AllowedPattern: '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
+  GitHubRepoWithIds:
+    Type: String
+    Default: ''
+    Description: >
+      The same repository as GitHub names it in OIDC tokens when it includes immutable IDs,
+      owner@ownerId/name@repoId (e.g. uyirhealthsystem@318135135/uyirjobs@1454946575). Leave empty
+      if GitHub sends plain owner/name. A failed sign-in shows the exact value in CloudTrail
+      (AssumeRoleWithWebIdentity, userIdentity.userName).
+    AllowedPattern: '|[A-Za-z0-9_.-]+@[0-9]+/[A-Za-z0-9_.-]+@[0-9]+'
   DeployBranch:
     Type: String
     Default: main
@@ -26,6 +35,7 @@ Parameters:
 
 Conditions:
   MakeOidc: !Equals [!Ref CreateOidcProvider, 'true']
+  HasRepoIds: !Not [!Equals [!Ref GitHubRepoWithIds, '']]
 
 Resources:
   Repository:
@@ -83,6 +93,8 @@ Resources:
                 token.actions.githubusercontent.com:sub:
                   - !Sub repo:${GitHubRepo}:ref:refs/heads/${DeployBranch}
                   - !Sub repo:${GitHubRepo}:environment:production
+                  - !If [HasRepoIds, !Sub 'repo:${GitHubRepoWithIds}:ref:refs/heads/${DeployBranch}', !Ref AWS::NoValue]
+                  - !If [HasRepoIds, !Sub 'repo:${GitHubRepoWithIds}:environment:production', !Ref AWS::NoValue]
       Policies:
         - PolicyName: deploy
           PolicyDocument:
