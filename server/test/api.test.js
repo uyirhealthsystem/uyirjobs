@@ -421,6 +421,18 @@ test('WhatsApp: two first messages at once create one record and one reply; fore
   const list = (await sup('/api/nurses?q=7777700002')).body;
   assert.equal(list.rows.filter(x => x.mobile === '7777700002').length, 1);
 
+  // A reply that failed permanently is retried on the nurse's next message (once it succeeds, no more).
+  WA_BAD.add('917777700003');
+  await sayHi('917777700003', 'Hi');
+  await until(() => waSent.find(m => m.body.to === '917777700003'));
+  await new Promise(r => setTimeout(r, 300));
+  WA_BAD.delete('917777700003');
+  await sayHi('917777700003', 'Hi, still waiting');
+  await until(() => waSent.filter(m => m.body.to === '917777700003').length === 2);
+  await sayHi('917777700003', 'thanks');
+  await new Promise(r => setTimeout(r, 400));
+  assert.equal(waSent.filter(m => m.body.to === '917777700003').length, 2, 'failed once, sent once, then no more');
+
   await sayHi('447700900123', 'Hi');
   const nf = await until(() => waSent.find(m => m.body.to === '447700900123'));
   assert.match(nf.body.text.body, /Indian mobile number/);

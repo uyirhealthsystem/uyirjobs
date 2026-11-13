@@ -72,7 +72,8 @@ async function handleOne(m) {
     if (n.status === 'NEW') await transition(n.id, 'INVITED', { role: 'system', actor: 'nurse', quiet: true }, 'Nurse messaged us on WhatsApp');
     n = await getNurse(n.id);
     // Once per nurse. The row lock above makes this check safe against concurrent webhooks.
-    const sent = await one(`SELECT 1 FROM messages WHERE nurse_id = ? AND channel = 'whatsapp' AND template = 'REG_LINK' LIMIT 1`, n.id);
+    // A link that failed permanently doesn't count: the nurse's next message gets a fresh try.
+    const sent = await one(`SELECT 1 FROM messages WHERE nurse_id = ? AND channel = 'whatsapp' AND template = 'REG_LINK' AND status <> 'failed' LIMIT 1`, n.id);
     if (!sent) await queueMessage(n, 'REG_LINK');
     outcome = created ? 'created' : isFirst ? 'linked' : 'matched';
   }
