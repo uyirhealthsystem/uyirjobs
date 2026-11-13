@@ -115,7 +115,7 @@ export function Dashboard() {
               <tbody>
                 {rows.map(r => (
                   <tr key={r.district} className="click" onClick={() => navigate('/' + qs({ district: r.district }))}>
-                    <td>{r.district}</td>
+                    <td>{r.district || 'No district yet'}</td>
                     {COLS.map(([k]) => <td key={k} className="n">{fmt(r[k])}</td>)}
                     <td className="n">{pct(r.VERIFIED, r.total)}</td>
                   </tr>

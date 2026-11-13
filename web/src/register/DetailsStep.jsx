@@ -15,6 +15,8 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
     services: new Set(String(n.service_interests || '').split(',').map(s => s.trim()).filter(Boolean)),
     consent: n.consent_given,
     consent_whatsapp: !n.consent_given || n.consent_whatsapp,
+    // Started on WhatsApp: name (prefilled from their WhatsApp profile) and district come from the nurse.
+    ...(n.needs_profile ? { name: n.name === 'Nurse' ? '' : n.name, district: '' } : {}),
   }));
   const save = useMutation({
     mutationFn: () => {
@@ -32,9 +34,17 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
   return (
     <>
       <div className="step">Step 1 of 3 · Your details</div>
-      <h1>{n.name}</h1>
-      <p className="muted">{n.district} district · <span className="mono">{n.mobile}</span></p>
+      <h1>{n.needs_profile ? 'Your details' : n.name}</h1>
+      <p className="muted">{n.district && `${n.district} district · `}<span className="mono">{n.mobile}</span></p>
       <form onSubmit={e => { e.preventDefault(); save.mutate(); }}>
+        {n.needs_profile && <>
+          {Text({ k: 'name', label: 'Full name (as on your nursing certificate)', required: true })}
+          <label className="f"><span>District *</span>
+            <select value={f.district} onChange={set('district')} required>
+              <option value="">Select…</option>{d.districts.map(x => <option key={x}>{x}</option>)}
+            </select>
+          </label>
+        </>}
         <label className="f"><span>Email (optional)</span><input type="email" value={f.email} onChange={set('email')} autoComplete="email" /></label>
         {Text({ k: 'address', label: 'Address', required: true })}
         {Text({ k: 'taluk', label: 'Taluk', required: true })}

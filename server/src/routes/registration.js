@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { q, one, tx } from '../db/pool.js';
 import { httpError } from '../lib/errors.js';
 import { encryptField } from '../lib/crypto.js';
-import { STATUSES, DOC_TYPES, DISTRICTS, PAYOUT_STATUSES, IFSC_RE, requiredDocTypes } from '../domain/workflow.js';
+import { STATUSES, DOC_TYPES, DISTRICTS, PAYOUT_STATUSES, IFSC_RE, requiredDocTypes, normalizeDistrict } from '../domain/workflow.js';
 import { logEvent } from '../services/events.js';
 import { transition, missingRequiredDocs } from '../services/nurses.js';
 import { storage, documentKey } from '../services/storage.js';
@@ -40,6 +40,10 @@ registrationRouter.get('/:t', async (req, res) => {
   res.json({ first_name: n.name.split(/\s+/)[0], masked_mobile: mask(n.mobile), docTypes: DOC_TYPES, districts: DISTRICTS });
 });
 
+// Nurses who started on WhatsApp have no district yet (and only their WhatsApp profile name):
+// they give their name and district with their details.
+const needsProfile = n => !n.district;
+
 const REG_FIELDS = ['email', 'address', 'taluk', 'block', 'qualification', 'council_reg_no', 'current_employment', 'experience_years', 'work_preference', 'preferred_locations', 'service_interests'];
 
 registrationRouter.get('/:t/form', withNurse, async (req, res) => {
@@ -52,8 +56,10 @@ registrationRouter.get('/:t/form', withNurse, async (req, res) => {
     nurse: {
       id: n.id, name: n.name, mobile: n.mobile, district: n.district, status: n.status, status_label: STATUSES[n.status].label, review_note: n.review_note,
       consent_given: !!n.consent_data_processing_at, consent_sms: n.consent_sms, consent_whatsapp: n.consent_whatsapp,
+      needs_profile: needsProfile(n),
       ...Object.fromEntries(REG_FIELDS.map(f => [f, n[f]])),
     },
+    districts: DISTRICTS,
     documents: docs, missing, required: requiredDocTypes(n),
     payout: {
       needed: PAYOUT_STATUSES.includes(n.status),
@@ -71,7 +77,19 @@ registrationRouter.post('/:t/details', withNurse, async (req, res) => {
   for (const k of ['address', 'taluk', 'qualification', 'council_reg_no', 'work_preference']) if (!f[k]) throw httpError(400, `Please fill in ${k.replace(/_/g, ' ')}`);
   if (f.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) throw httpError(400, 'Invalid email address');
   f.experience_years = f.experience_years == null ? null : Math.max(0, Math.min(60, Number(f.experience_years) || 0));
+  let profile = null;
+  if (needsProfile(n)) {
+    const name = String(body.name ?? '').trim().slice(0, 200);
+    const district = normalizeDistrict(body.district);
+    if (!name) throw httpError(400, 'Please fill in your name');
+    if (!district) throw httpError(400, 'Please choose your district');
+    profile = { name, district };
+  }
   await tx(async () => {
+    if (profile) {
+      await q(`UPDATE nurses SET name = ?, district = ? WHERE id = ?`, profile.name, profile.district, n.id);
+      await logEvent(n.id, 'registration', { note: `Name and district given by the nurse: ${profile.name}, ${profile.district}`, actor: 'nurse' });
+    }
     await q(`UPDATE nurses SET ${REG_FIELDS.map(k => `${k} = ?`).join(', ')}, consent_sms = ?, consent_whatsapp = ?,
         consent_data_processing_at = COALESCE(consent_data_processing_at, now()), updated_at = now() WHERE id = ?`,
       ...REG_FIELDS.map(k => f[k]), n.consent_sms, body.consent_whatsapp !== false, n.id);

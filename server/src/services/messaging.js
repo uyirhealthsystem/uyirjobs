@@ -20,7 +20,7 @@ export const TEMPLATES = {
   CORRECTION: n => `Uyir: some of your documents need correction (${n.review_note || 'see the link'}). Please re-upload: ${regLink(n)}`,
   REJECTED:   n => `Uyir: we are unable to approve your registration at this time. Reason: ${n.review_note || 'not specified'}.`,
   VERIFIED:   n => `Congratulations ${firstName(n)}! Your documents are verified. Please add your bank details for payments: ${regLink(n)}`,
-  NOT_FOUND:  () => `Vanakkam! We could not find your Uyir registration from this message. Please open the registration link in the SMS we sent you, or contact your district office.`,
+  NOT_FOUND:  () => `Vanakkam! Uyir registration needs an Indian mobile number. Please message us from your Indian WhatsApp number, or contact your district office.`,
 };
 const SMS_TEMPLATES = new Set(['INVITE', 'INVITE_AGAIN']);
 const WINDOW_MS = 24 * 3600e3 - 5 * 60e3;   // Meta's customer-service window, with a safety margin

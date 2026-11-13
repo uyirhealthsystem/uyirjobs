@@ -26,7 +26,7 @@ export function NurseDetail() {
         <div>
           <div className="muted mono">{n.id}</div>
           <h1>{n.name} <StatusPill status={n.status} /> {n.dnc && <span className="pill dnc">Do Not Contact</span>}</h1>
-          <div className="muted">{n.district} · <span className="mono">{n.mobile}</span>{n.source && ` · ${n.source}`}</div>
+          <div className="muted">{n.district || 'No district yet'} · <span className="mono">{n.mobile}</span>{n.source && ` · ${n.source}`}</div>
         </div>
         <button className="btn" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/nurses'))}>← Back</button>
       </div>

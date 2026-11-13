@@ -155,7 +155,7 @@ nursesRouter.patch('/:id', async (req, res) => {
       up.mobile = m;
     }
   }
-  if (body.district != null && body.district !== n.district) {
+  if (body.district != null && body.district !== '' && body.district !== n.district) {
     needSuper(user);   // moving a nurse between districts is a Super Admin action
     const d = normalizeDistrict(body.district);
     if (!d) throw httpError(400, 'Unknown district');

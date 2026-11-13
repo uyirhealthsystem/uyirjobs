@@ -1,22 +1,19 @@
-# Nurse messaging: SMS invite → WhatsApp
+# Nurse messaging: SMS → WhatsApp → personal registration link
 
 ```
-Staff send invite ──SMS──▶ "Vanakkam Meena, … Tap to chat with us on WhatsApp: https://wa.me/91XXXXXXXXXX?text=Hi%20Uyir%20UY7K3M9Q"
-Nurse taps it ──▶ WhatsApp opens with "Hi Uyir UY7K3M9Q" typed ──▶ nurse sends it
-App receives it (webhook) ──▶ matches the code to the nurse ──▶ replies on WhatsApp with their personal registration link
-Everything after that is on WhatsApp: OTP, registration received, reminders, correction, rejected, verified.
+Staff SMS from their own phone ──▶ "… chat with us on WhatsApp: https://wa.me/91XXXXXXXXXX?text=Hi%2C%20I%20want%20to%20register%20with%20Uyir%20Health"
+Nurse taps it ──▶ WhatsApp opens on our business chat with that text typed ──▶ the nurse taps Send
+App receives it (webhook) ──▶ finds or creates the nurse ──▶ replies on WhatsApp with their personal registration link (once)
 ```
 
-- **SMS is used only for the invite** (and an invite reminder while the nurse hasn't messaged us yet). It carries the WhatsApp chat link, never the registration link.
-- **The nurse's "Hi" is their WhatsApp opt-in.** The app records it, plus the number they messaged from, and sends all later WhatsApp messages to that number. Their WhatsApp number can differ from the mobile you have, because the code identifies them.
-- **24-hour window:** for 24 hours after a nurse's last message, the app replies in free text (no template approval needed). After that, it uses approved templates.
-- **Matching:** first by the `UY……` code in the message, else by the sender's number (their WhatsApp number or mobile). A nurse who was never invited but messages from their own mobile is invited quietly and gets the link. Unknown senders get: *"We could not find your Uyir registration…"*.
-- **No spam:** Meta's repeated deliveries of the same message are ignored, and a burst of messages ("Hi", "hello", "?") gets one reply.
+- **The nurse always sends first.** A wa.me link only pre-types the text; nothing is sent until the nurse taps Send. That message is their WhatsApp opt-in and opens Meta's 24-hour window, so the reply is free text (no template, no charge).
+- **Matching:** by an `UY……` invite code in the message if there is one, else by the sender's number (a nurse's recorded WhatsApp number or mobile).
+- **New sender:** if the number is an Indian mobile we don't know, the app creates a nurse record (source **WhatsApp**, status Invited, WhatsApp consent recorded) with their WhatsApp profile name and **no district**. The registration form asks for their full name and district; until then only Super Admins see the record ("No district yet"). Non-Indian numbers get a short reply saying an Indian number is needed.
+- **Once per nurse:** the registration link is sent automatically only the first time. Later messages get no automatic reply; staff can resend from the nurse page. Meta's repeat deliveries of the same webhook are ignored, and two first messages arriving together still create one record and one reply (each message is handled in one transaction, under a row lock).
 - **Do Not Contact:** no reply. The nurse page shows that they messaged us, so staff can lift Do Not Contact with their consent.
-- **Staff "Resend":** goes by SMS (with the chat link) until the nurse has messaged us, then straight to WhatsApp with the registration link.
-- Each nurse page shows **WhatsApp: connected / waiting for the nurse to say Hi**, their code and number. The list shows a **WA** badge, and the overview counts **Connected on WhatsApp**.
+- Later updates (registration received, reminders, correction, rejected, verified) go on WhatsApp: free text within 24 hours of the nurse's last message, approved templates after that.
 
-Until you configure it, `WHATSAPP_PROVIDER=simulated` records each message (staff see it under **Messages sent**) but sends nothing. SMS is also recorded as `simulated` until an SMS gateway is connected (see the end of this guide).
+Until you configure it, `WHATSAPP_PROVIDER=simulated` records each message (staff see it under **Messages sent**) but sends nothing.
 
 ## 1. Meta setup (one time)
 
@@ -28,7 +25,7 @@ Until you configure it, `WHATSAPP_PROVIDER=simulated` records each message (staf
 
 ## 2. Templates
 
-These are used outside the 24-hour window (and for the OTP). Names and the number of `{{n}}` variables must match exactly. The wording can be changed, or translated to Tamil (`WHATSAPP_LANG=ta`), before you submit.
+These are used outside the 24-hour window. Names and the number of `{{n}}` variables must match exactly. The wording can be changed, or translated to Tamil (`WHATSAPP_LANG=ta`), before you submit.
 
 | Template name | Category | Body (submit this text) |
 |---|---|---|
@@ -38,9 +35,7 @@ These are used outside the 24-hour window (and for the OTP). Names and the numbe
 | `uyir_correction_required` | Utility | Vanakkam {{1}}, some of your documents need correction: {{2}}. Please re-upload them here: {{3}} |
 | `uyir_registration_rejected` | Utility | Vanakkam {{1}}, we are unable to approve your Uyir registration at this time. Reason: {{2}} |
 | `uyir_verified_add_bank` | Utility | Congratulations {{1}}! Your documents are verified. Please add your bank details for payments here: {{2}} |
-| `uyir_otp` | **Authentication** | Meta provides the wording ("{{1}} is your verification code…"). Choose the **Copy code** button and a 10-minute expiry. |
 
-The OTP is sent immediately (not through the queue) and the code is **never stored**: the message record keeps `******`. If WhatsApp can't deliver it, the nurse sees an error and can try again straight away.
 
 ## 3. Configure the app
 

@@ -105,7 +105,7 @@ function NurseRow({ r, checked, onToggle, showDistrict }) {
       <td className="mono">{r.id}</td>
       <td><a href={`/nurses/${encodeURIComponent(r.id)}`} onClick={e => { e.preventDefault(); open(); }}>{r.name}</a></td>
       <td className="mono">{r.mobile}</td>
-      {showDistrict && <td>{r.district}</td>}
+      {showDistrict && <td>{r.district || <span className="muted">—</span>}</td>}
       <td>
         <StatusPill status={r.status} />{' '}
         {r.whatsapp_connected_at && <span className="pill ch-whatsapp" title="Connected on WhatsApp">WA</span>}{' '}

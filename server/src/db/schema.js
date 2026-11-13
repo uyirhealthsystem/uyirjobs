@@ -158,6 +158,9 @@ CREATE INDEX IF NOT EXISTS ix_messages_nurse ON messages(nurse_id);
 CREATE INDEX IF NOT EXISTS ix_messages_status ON messages(status) WHERE status = 'queued';
 CREATE INDEX IF NOT EXISTS ix_messages_due ON messages(next_attempt_at) WHERE status = 'queued' AND channel = 'whatsapp';
 CREATE INDEX IF NOT EXISTS ix_messages_provider ON messages(provider_id) WHERE provider_id IS NOT NULL;
+-- Nurses who start on WhatsApp (SMS chat link → "Hi") get a record before anyone knows their
+-- district; they choose it in the registration form. Until then only Super Admins see them.
+ALTER TABLE nurses ALTER COLUMN district DROP NOT NULL;
 -- Session clean-up when a user's access changes.
 CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_id);
 `;

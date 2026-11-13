@@ -228,7 +228,7 @@ export function CallLogPanel({ d }) {
 export function BasicDetailsPanel({ n }) {
   const { user, meta } = useAuth();
   const toast = useToast();
-  const [form, setForm] = useState({ name: n.name, mobile: n.mobile, district: n.district, source: n.source || '' });
+  const [form, setForm] = useState({ name: n.name, mobile: n.mobile, district: n.district || '', source: n.source || '' });
   const act = useNurseAction(n.id, { onSuccess: () => toast('Saved') });
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
   const body = isSuper(user) ? form : { name: form.name, mobile: form.mobile, source: form.source };
@@ -240,7 +240,7 @@ export function BasicDetailsPanel({ n }) {
         <input type="tel" aria-label="Mobile" value={form.mobile} onChange={set('mobile')} placeholder="Mobile" />
         {isSuper(user) && (
           <select aria-label="District" title="Move to another district" value={form.district} onChange={set('district')}>
-            {meta.districts.map(x => <option key={x}>{x}</option>)}
+            {!n.district && <option value="">No district yet</option>}{meta.districts.map(x => <option key={x}>{x}</option>)}
           </select>
         )}
         <input type="text" aria-label="Source" value={form.source} onChange={set('source')} placeholder="Source" />

@@ -369,12 +369,65 @@ test('invite SMS carries the registration link; a nurse who says "Hi" on WhatsAp
   assert.equal(n.messages.filter(m => m.channel === 'sms').length, 1, 'still only the first SMS');
 });
 
-test('WhatsApp inbound: unknown sender, match by number, Do Not Contact', async () => {
-  const admin = await login('tenkasi.admin', 'Tenkasi@123');
+test('WhatsApp: a new sender gets a record and their personal link, once', async () => {
+  const sup = await login('admin', 'Admin@123');
+  const tenkasi = await login('tenkasi.admin', 'Tenkasi@123');
+  const from = '917777700001';
+  const r = await sayHi(from, 'Hi, I want to register with Uyir Health');
+  assert.equal(r.received, 1);
+  const reply = await until(() => waSent.find(m => m.body.to === from && m.body.type === 'text'));
+  const t = reply.body.text.body.match(/\/register\?t=([\w-]+)/)?.[1];
+  assert.ok(t, 'personal registration link in the reply: ' + reply.body.text.body);
 
-  await sayHi('917777700001', 'Hi');
-  const nf = await until(() => waSent.find(m => m.body.to === '917777700001'));
-  assert.match(nf.body.text.body, /could not find/);
+  // The record: source WhatsApp, invited, opted in, no district yet (only Super Admins see it).
+  const list = (await sup('/api/nurses?q=7777700001')).body;
+  const id = list.rows.find(x => x.mobile === '7777700001')?.id;
+  assert.ok(id, 'nurse record created: ' + JSON.stringify(list).slice(0, 300));
+  const n = (await sup('/api/nurses/' + id)).body.nurse;
+  assert.equal(n.status, 'INVITED');
+  assert.equal(n.source, 'WhatsApp');
+  assert.equal(n.district, null);
+  assert.equal(n.name, 'Test Nurse', 'starts with the WhatsApp profile name');
+  assert.equal(n.whatsapp_number, from);
+  assert.ok(n.consent_whatsapp && n.whatsapp_connected_at);
+  assert.equal((await tenkasi('/api/nurses/' + id)).status, 404, 'district admins do not see it yet');
+
+  // Messaging again, later, does not send the link again.
+  await sayHi(from, 'hello, did not get it?');
+  await new Promise(r => setTimeout(r, 400));
+  assert.equal(waSent.filter(m => m.body.to === from).length, 1, 'registration link sent only once');
+
+  // The form asks for name and district; then the record belongs to that district.
+  const form = (await pub(`${t}/form`)).body;
+  assert.equal(form.nurse.needs_profile, true);
+  assert.ok(form.districts.includes('Tenkasi'));
+  assert.equal((await pub(`${t}/details`, { ...DETAILS })).status, 400, 'district required');
+  assert.equal((await pub(`${t}/details`, { ...DETAILS, name: 'Kavitha R', district: 'Nowhere' })).status, 400);
+  assert.equal((await pub(`${t}/details`, { ...DETAILS, name: 'Kavitha R', district: 'tenkasi' })).status, 200);
+  const done = (await tenkasi('/api/nurses/' + id)).body.nurse;
+  assert.equal(done.name, 'Kavitha R');
+  assert.equal(done.district, 'Tenkasi');
+  assert.equal(done.status, 'REGISTERED');
+  assert.equal((await pub(`${t}/form`)).body.nurse.needs_profile, false);
+});
+
+test('WhatsApp: two first messages at once create one record and one reply; foreign numbers are told why', async () => {
+  const from = '917777700002';
+  await Promise.all([sayHi(from, 'Hi'), sayHi(from, 'Hi again'), sayHi(from, 'Hi', 'wamid.SAME'), sayHi(from, 'Hi', 'wamid.SAME')]);
+  await until(() => waSent.find(m => m.body.to === from));
+  await new Promise(r => setTimeout(r, 400));
+  assert.equal(waSent.filter(m => m.body.to === from).length, 1);
+  const sup = await login('admin', 'Admin@123');
+  const list = (await sup('/api/nurses?q=7777700002')).body;
+  assert.equal(list.rows.filter(x => x.mobile === '7777700002').length, 1);
+
+  await sayHi('447700900123', 'Hi');
+  const nf = await until(() => waSent.find(m => m.body.to === '447700900123'));
+  assert.match(nf.body.text.body, /Indian mobile number/);
+});
+
+test('WhatsApp inbound: match by number, Do Not Contact', async () => {
+  const admin = await login('tenkasi.admin', 'Tenkasi@123');
 
   // A nurse we never invited messages us from their own mobile: invited quietly, link in the reply, no SMS.
   const quiet = (await admin('/api/nurses', { name: 'Self Start', mobile: '9999900131' })).body.id;
