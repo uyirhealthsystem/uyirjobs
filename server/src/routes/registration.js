@@ -100,6 +100,7 @@ registrationRouter.post('/:t/details', withNurse, async (req, res) => {
     ['experience_years', 'your years of experience'], ['work_preference', 'your work preference'], ['service_interests', 'the services you are interested in']]) {
     if (f[k] == null) throw httpError(400, `Please fill in ${label}`);
   }
+  if (f.preferred_locations.includes(';')) throw httpError(400, 'Choose one preferred work location');
   f.experience_years = Math.max(0, Math.min(60, Number(f.experience_years) || 0));
   const profile = name !== n.name || district !== n.district ? { name, district } : null;
   await tx(async () => {

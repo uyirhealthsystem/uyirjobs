@@ -64,9 +64,6 @@ tr.click { cursor: pointer; }
 
 /* pills */
 .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; background: #eef0f3; color: #344054; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
-.chips .pill { font-size: 13px; padding: 4px 10px; }
-.chips .pill .linkbtn { margin-left: 4px; }
 .locpick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .locpick select { min-width: 0; width: 100%; }
 .locpick select[aria-label$="village"], .locpick .wide { grid-column: 1 / -1; }

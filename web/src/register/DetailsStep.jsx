@@ -9,9 +9,14 @@ const SERVICES = ['Home nursing', 'Elderly care', 'Post-operative care', 'Pallia
 // Block is not asked here (staff can still fill it in); the server keeps what is on file.
 const FIELDS = ['address', 'email', 'taluk', 'qualification', 'council_reg_no', 'current_employment', 'experience_years', 'work_preference'];
 const OTHER = '__other__';
-const MAX_LOCATIONS = 5;
-// Preferred work locations are stored as "Village, Taluk (District); Village, Taluk (District)".
-const parseLocations = s => String(s || '').split(';').map(x => x.trim()).filter(Boolean);
+// The one preferred work location is stored as "Village, Taluk (District)". Older records may hold
+// several ("…; …") or just "Taluk (District)": the form starts from the first one.
+function parseLocation(s, districts) {
+  const first = String(s || '').split(';')[0].trim();
+  const m = /^(?:(.*), )?([^,]+) \(([^()]+)\)$/.exec(first);
+  if (!m || !districts.includes(m[3])) return { district: '', taluk: '', village: '' };
+  return { district: m[3], taluk: m[2], village: m[1] || '' };
+}
 
 export function DetailsStep({ reg, d, refresh, onDone }) {
   const n = d.nurse;
@@ -22,7 +27,6 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
     name: n.name === 'Nurse' ? '' : n.name,
     qualification: n.qualification === 'Other' ? '' : n.qualification ?? '',
     district: n.district || '',
-    locations: parseLocations(n.preferred_locations),
     services: new Set(String(n.service_interests || '').split(',').map(s => s.trim()).filter(Boolean)),
     consent: n.consent_given,
     consent_whatsapp: !n.consent_given || n.consent_whatsapp,
@@ -33,18 +37,26 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
   // Likewise for employment and qualification answers typed under "Other" (older records saved just "Other").
   const [employmentOther, setEmploymentOther] = useState(() => !!n.current_employment && !EMPLOYMENT.includes(n.current_employment));
   const [qualificationOther, setQualificationOther] = useState(() => !!n.qualification && !QUALIFICATIONS.includes(n.qualification));
-  const [loc, setLoc] = useState({ district: n.district || '', taluk: '', village: '' });
+  const [loc, setLoc] = useState(() => {
+    const saved = parseLocation(n.preferred_locations, d.districts);
+    return saved.district ? saved : { district: n.district || '', taluk: '', village: '' };
+  });
   const villages = useQuery({
     queryKey: ['villages', loc.district, loc.taluk],
     queryFn: () => reg.get(`/villages?district=${encodeURIComponent(loc.district)}&taluk=${encodeURIComponent(loc.taluk)}`),
     enabled: !!(loc.district && loc.taluk),
     staleTime: Infinity,
   });
+  const villageList = villages.data?.villages || [];
+  // "Other" is on when chosen, or when a saved village is not in the list (it was typed in).
+  const villageOther = loc.villageOther || (!!loc.village && !!villages.data && !villageList.includes(loc.village));
 
   const save = useMutation({
     mutationFn: () => {
-      const { services, locations, ...rest } = f;
-      return reg.post('/details', { ...rest, preferred_locations: locations.join('; '), service_interests: [...services].join(', ') });
+      const { services, ...rest } = f;
+      // ";" separates locations and "," the parts of one, so neither may appear in a typed village.
+      const village = loc.village.replace(/[;,]/g, ' ').replace(/\s+/g, ' ').trim();
+      return reg.post('/details', { ...rest, preferred_locations: `${village}, ${loc.taluk} (${loc.district})`, service_interests: [...services].join(', ') });
     },
     onSuccess: () => { toast('Details saved'); onDone(); refresh(); },
   });
@@ -75,19 +87,9 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
     setTalukOther(v === OTHER);
     setF(x => ({ ...x, taluk: v === OTHER ? '' : v }));
   }
-  function addLocation() {
-    // ";" separates saved locations and "," the parts of one, so neither may appear in a typed village.
-    const village = loc.village.replace(/[;,]/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!loc.district || !loc.taluk || !village) return;
-    const label = `${village}, ${loc.taluk} (${loc.district})`;
-    setF(x => (x.locations.includes(label) || x.locations.length >= MAX_LOCATIONS ? x : { ...x, locations: [...x.locations, label] }));
-    setLoc(l => ({ ...l, village: '', villageOther: false }));
-  }
-  const removeLocation = label => setF(x => ({ ...x, locations: x.locations.filter(l => l !== label) }));
-
   function submit(e) {
     e.preventDefault();
-    if (!f.locations.length) return toast('Add at least one preferred work location', true);
+    if (!loc.district || !loc.taluk || !loc.village.trim()) return toast('Choose your preferred work location: district, taluk and village', true);
     if (!f.services.size) return toast('Choose at least one service you are interested in', true);
     save.mutate();
   }
@@ -118,39 +120,26 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
         {talukOther && Text({ k: 'taluk', label: 'Your taluk' })}
 
         <fieldset className="f plain">
-          <legend className="small"><span>Preferred work location *</span> <span className="muted">(up to {MAX_LOCATIONS})</span></legend>
-          {f.locations.length > 0 && (
-            <div className="chips">
-              {f.locations.map(l => (
-                <span key={l} className="pill">{l} <button type="button" className="linkbtn" aria-label={`Remove ${l}`} onClick={() => removeLocation(l)}>✕</button></span>
-              ))}
-            </div>
-          )}
-          {f.locations.length < MAX_LOCATIONS && (
-            <div className="locpick">
-              <select aria-label="Work location district" value={loc.district} onChange={e => setLoc({ district: e.target.value, taluk: '', village: '' })}>
-                <option value="">District…</option>{d.districts.map(x => <option key={x}>{x}</option>)}
-              </select>
-              <select aria-label="Work location taluk" value={loc.taluk} onChange={e => setLoc(l => ({ ...l, taluk: e.target.value, village: '', villageOther: false }))} disabled={!loc.district}>
-                <option value="">Taluk…</option>{(taluks[loc.district] || []).map(x => <option key={x}>{x}</option>)}
-              </select>
-              <select aria-label="Work location village" value={loc.villageOther ? OTHER : loc.village}
-                onChange={e => setLoc(l => ({ ...l, villageOther: e.target.value === OTHER, village: e.target.value === OTHER ? '' : e.target.value }))} disabled={!villages.data}>
-                <option value="">{villages.isFetching ? 'Loading villages…' : 'Village…'}</option>
-                {(villages.data?.villages || []).map(x => <option key={x}>{x}</option>)}
-                <option value={OTHER}>Other (not listed)</option>
-              </select>
-              {loc.villageOther && (
-                <input type="text" className="wide" aria-label="Village or area name" placeholder="Type the village or area" maxLength={100}
-                  value={loc.village} onChange={e => setLoc(l => ({ ...l, village: e.target.value }))} />
-              )}
-              <button type="button" className="btn" onClick={addLocation} disabled={!loc.village.trim()}>Add</button>
-            </div>
-          )}
+          <legend className="small"><span>Preferred work location *</span> <span className="muted">(one place)</span></legend>
+          <div className="locpick">
+            <select aria-label="Work location district" value={loc.district} onChange={e => setLoc({ district: e.target.value, taluk: '', village: '' })} required>
+              <option value="">District…</option>{d.districts.map(x => <option key={x}>{x}</option>)}
+            </select>
+            <select aria-label="Work location taluk" value={loc.taluk} onChange={e => setLoc(l => ({ ...l, taluk: e.target.value, village: '', villageOther: false }))} disabled={!loc.district} required>
+              <option value="">Taluk…</option>{(taluks[loc.district] || []).map(x => <option key={x}>{x}</option>)}
+            </select>
+            <select aria-label="Work location village" value={villageOther ? OTHER : loc.village}
+              onChange={e => setLoc(l => ({ ...l, villageOther: e.target.value === OTHER, village: e.target.value === OTHER ? '' : e.target.value }))} disabled={!villages.data} required>
+              <option value="">{villages.isFetching ? 'Loading villages…' : 'Village…'}</option>
+              {villageList.map(x => <option key={x}>{x}</option>)}
+              <option value={OTHER}>Other (not listed)</option>
+            </select>
+            {villageOther && (
+              <input type="text" className="wide" aria-label="Village or area name" placeholder="Type the village or area" maxLength={100} required
+                value={loc.village} onChange={e => setLoc(l => ({ ...l, village: e.target.value }))} />
+            )}
+          </div>
           {villages.isError && <p className="small" role="alert">Could not load villages. Check your connection and choose the taluk again.</p>}
-          {f.locations.length < MAX_LOCATIONS && (
-            <p className="small muted">Choose district, taluk and village, then tap Add.</p>
-          )}
         </fieldset>
 
         <label className="f"><span>Qualification *</span>

@@ -98,7 +98,7 @@ const uploadDoc = async (t, type, buf, filename = 'x.pdf', mime = 'application/p
   return { status: res.status, body: await res.json() };
 };
 const tokenOf = async (staff, id) => new URL((await staff('/api/nurses/' + id)).body.nurse.registration_url).searchParams.get('t');
-const DETAILS = { consent: true, address: 'x', email: 'nurse@example.com', taluk: 'y', preferred_locations: 'Tenkasi (Tenkasi)', qualification: 'GNM Diploma',
+const DETAILS = { consent: true, address: 'x', email: 'nurse@example.com', taluk: 'y', preferred_locations: 'Tenkasi, Tenkasi (Tenkasi)', qualification: 'GNM Diploma',
   council_reg_no: 'TN1', current_employment: 'Not working', experience_years: 0, work_preference: 'Part-time', service_interests: 'Home nursing' };
 
 test('full flow: add & invite → nurse registers → documents → review → verified → bank details', async () => {
@@ -120,6 +120,7 @@ test('full flow: add & invite → nurse registers → documents → review → v
   for (const k of ['name', 'email', 'preferred_locations', 'current_employment', 'experience_years', 'service_interests']) {
     assert.equal((await pub(`${t}/details`, { ...DETAILS, [k]: '' })).status, 400, `${k} required`);
   }
+  assert.equal((await pub(`${t}/details`, { ...DETAILS, preferred_locations: 'Melur, Melur (Madurai); Tenkasi, Tenkasi (Tenkasi)' })).status, 400, 'only one work location');
   assert.equal((await pub(`${t}/details`, DETAILS)).status, 200);
   assert.equal((await admin('/api/nurses/' + id)).body.nurse.status, 'REGISTERED');
   // District → Taluk → Village choices for the preferred work location.
