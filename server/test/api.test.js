@@ -354,7 +354,7 @@ function sayHi(from, text, id = 'wamid.IN' + ++inboundSeq) {
     .then(async r => { assert.equal(r.status, 200); return r.json(); });
 }
 
-test('invite SMS carries the registration link; a nurse who says "Hi" on WhatsApp is still matched', async () => {
+test('invite SMS carries our WhatsApp chat link; a nurse who says "Hi" on WhatsApp is still matched', async () => {
   const admin = await login('tenkasi.admin', 'Tenkasi@123');
   const made = (await admin('/api/nurses', { name: 'Anitha Flow', mobile: '9999900121', invite: true })).body;
   assert.deepEqual(made.notified, ['sms']);
@@ -363,8 +363,8 @@ test('invite SMS carries the registration link; a nurse who says "Hi" on WhatsAp
   assert.match(code, /^UY[2-9A-HJ-NP-Z]{6}$/);
   const sms = n.messages.find(m => m.template === 'INVITE');
   assert.equal(sms.channel, 'sms');
-  assert.ok(sms.body.includes('/register?t=' + n.nurse.reg_token), 'registration link in the SMS: ' + sms.body);
-  assert.ok(!sms.body.includes('wa.me'), 'no WhatsApp chat link in the SMS');
+  assert.ok(sms.body.includes(`https://wa.me/${BUSINESS}?text=${encodeURIComponent('Hi Uyir ' + code)}`), 'WhatsApp chat link with the code in the SMS: ' + sms.body);
+  assert.ok(!sms.body.includes('/register?t='), 'no registration link in the SMS');
   assert.ok(sms.body.includes('Uyir Health App'), 'SMS names the Uyir Health App');
   assert.ok(!waSent.some(m => m.body.to === '919999900121'), 'no WhatsApp before the nurse messages us');
 
@@ -485,11 +485,11 @@ test('Call / SMS from the admin phone, and the call status log', async () => {
   const d = (await admin('/api/nurses/' + id)).body;
   assert.equal(d.contact.tel, 'tel:+919999900151');
   assert.ok(d.contact.sms.startsWith('sms:+919999900151?body='));
-  // The SMS carries the nurse's personal registration link.
-  const t = new URL(d.nurse.registration_url).searchParams.get('t');
-  assert.ok(t && d.contact.sms_body.includes('/register?t=' + t), d.contact.sms_body);
+  // The SMS carries our WhatsApp chat link with the nurse's code, not the registration link.
+  assert.match(d.nurse.wa_code, /^UY[2-9A-HJ-NP-Z]{6}$/);
+  assert.ok(d.contact.sms_body.includes(`https://wa.me/${BUSINESS}?text=${encodeURIComponent('Hi Uyir ' + d.nurse.wa_code)}`), d.contact.sms_body);
+  assert.ok(!d.contact.sms_body.includes('/register'), d.contact.sms_body);
   assert.equal(d.nurse.status, 'NEW', 'opening the page does not invite the nurse');
-  assert.equal((await pub(t)).status, 404, 'link not active before the nurse is invited');
 
   assert.equal((await admin(`/api/nurses/${id}/contact`, { channel: 'call' })).status, 200);
   assert.equal((await admin(`/api/nurses/${id}/contact`, { channel: 'sms' })).status, 200);
@@ -497,14 +497,15 @@ test('Call / SMS from the admin phone, and the call status log', async () => {
   // system SMS is recorded on top of the admin's own.
   const after = (await admin('/api/nurses/' + id)).body;
   assert.equal(after.nurse.status, 'INVITED');
-  assert.equal(new URL(after.nurse.registration_url).searchParams.get('t'), t, 'same link as in the SMS');
+  assert.equal(after.nurse.wa_code, d.nurse.wa_code, 'same code as in the SMS');
   assert.ok(!after.messages.some(m => m.channel === 'sms'));
+  const t = new URL(after.nurse.registration_url).searchParams.get('t');
   assert.equal((await pub(`${t}/form`)).body.nurse.status, 'INVITED');
   assert.equal((await admin(`/api/nurses/${id}/call-log`, { outcome: 'BOGUS' })).status, 400);
   assert.equal((await admin(`/api/nurses/${id}/call-log`, { outcome: 'CALL_BACK', note: 'Free after 6 pm' })).status, 200);
   const ev = (await admin('/api/nurses/' + id)).body.events;
   assert.ok(ev.some(e => e.type === 'call' && /Call started/.test(e.note)));
-  assert.ok(ev.some(e => e.type === 'sms' && /registration link/.test(e.note)));
+  assert.ok(ev.some(e => e.type === 'sms' && /WhatsApp chat link/.test(e.note)));
   assert.ok(ev.some(e => e.type === 'call' && e.note === 'Call status: Asked to call back later — Free after 6 pm' && e.actor === 'tenkasi.admin'));
 
   // Do Not Contact: no links, and the endpoints refuse.

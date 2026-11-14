@@ -50,7 +50,7 @@ export function transition(nurseId, to, ctx, note = null) {
 async function notify(id, from, to) {
   const n = await getNurse(id);
   switch (to) {
-    // Invite by SMS with the registration link; if the nurse has messaged us on WhatsApp, a resend
+    // Invite by SMS with our WhatsApp chat link; if the nurse has messaged us on WhatsApp, a resend
     // goes to WhatsApp instead.
     case 'INVITED':             return inviteChannel(n) === 'whatsapp' ? queueMessage(n, 'REG_LINK') : queueMessage(n, from === 'INVITED' ? 'INVITE_AGAIN' : 'INVITE');
     case 'REGISTERED':          return queueMessage(n, 'REG_DONE');
@@ -61,13 +61,13 @@ async function notify(id, from, to) {
 }
 
 /**
- * Give the nurse a personal registration link token if they don't have one yet, so the SMS an
- * admin sends from their own phone can carry the link. Returns the token.
+ * Give the nurse their WhatsApp invite code if they don't have one yet, so the SMS an admin sends
+ * from their own phone can carry the chat link (the code tells us who messaged). Returns the code.
  */
-export async function ensureRegToken(nurse) {
-  if (nurse.reg_token) return nurse.reg_token;
-  const row = await one(`UPDATE nurses SET reg_token = COALESCE(reg_token, ?) WHERE id = ? RETURNING reg_token`, token(18), nurse.id);
-  return row.reg_token;
+export async function ensureWaCode(nurse) {
+  if (nurse.wa_code) return nurse.wa_code;
+  const row = await one(`UPDATE nurses SET wa_code = COALESCE(wa_code, ?) WHERE id = ? RETURNING wa_code`, newCode(), nurse.id);
+  return row.wa_code;
 }
 
 /** Which required documents (per policy and the nurse's details) are missing a live upload. */

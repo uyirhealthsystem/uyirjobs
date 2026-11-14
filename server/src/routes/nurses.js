@@ -10,7 +10,7 @@ import {
 } from '../domain/workflow.js';
 import { logEvent } from '../services/events.js';
 import { queueMessage, inviteChannel, manualSmsBody } from '../services/messaging.js';
-import { transition, missingRequiredDocs, ensureRegToken, CALL_OUTCOMES } from '../services/nurses.js';
+import { transition, missingRequiredDocs, ensureWaCode, CALL_OUTCOMES } from '../services/nurses.js';
 import { eraseNurse } from '../services/erase.js';
 import { scope, isSuper, needSuper, canSee, loadVisibleNurse } from '../middleware/auth.js';
 
@@ -136,9 +136,9 @@ nursesRouter.get('/:id', async (req, res) => {
     n.deleted_by ? one(`SELECT name FROM users WHERE id = ?`, n.deleted_by) : null,
   ]);
   const allowed = (TRANSITIONS[n.status] || []).filter(to => canTransition(n.status, to, user.role).ok);
-  // Call / SMS from the admin's own phone. The SMS carries the nurse's personal registration link.
+  // Call / SMS from the admin's own phone. The SMS carries our WhatsApp chat link with the nurse's code.
   const phone = '+91' + n.mobile;
-  if (!n.dnc && n.consent_sms) n.reg_token = await ensureRegToken(n);
+  if (!n.dnc && n.consent_sms) n.wa_code = await ensureWaCode(n);
   const smsBody = !n.dnc && n.consent_sms ? manualSmsBody(n) : null;
   const contact = {
     tel: n.dnc ? null : 'tel:' + phone,
@@ -242,9 +242,9 @@ nursesRouter.post('/:id/contact', async (req, res) => {
     await logEvent(n.id, 'call', { note: `Call started from admin's phone to ${n.mobile}`, user });
   } else if (channel === 'sms') {
     if (!n.consent_sms) throw httpError(409, 'The nurse has not consented to SMS');
-    await ensureRegToken(n);
-    await logEvent(n.id, 'sms', { note: `SMS opened on admin's phone with the registration link`, user });
-    // The link only works once the nurse is invited. quiet: the admin's own SMS is the invite.
+    await ensureWaCode(n);
+    await logEvent(n.id, 'sms', { note: `SMS opened on admin's phone with the WhatsApp chat link`, user });
+    // quiet: the admin's own SMS is the invite (this also gives the nurse their registration link token).
     if (n.status === 'NEW') await transition(n.id, 'INVITED', { role: user.role, user, from: 'NEW', quiet: true }, 'Invited by SMS from admin phone');
   } else throw httpError(400, 'channel must be call or sms');
   await q(`UPDATE nurses SET last_contacted_at = now(), updated_at = now() WHERE id = ?`, n.id);

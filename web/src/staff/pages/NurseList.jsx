@@ -63,7 +63,7 @@ export function NurseList() {
             <button className="btn sm primary" disabled={bulk.isPending} onClick={() => bulk.mutate([...selected])}>
               {bulk.isPending ? 'Saving…' : 'Mark as invited'}
             </button>
-            <span className="small muted">Activates each nurse’s registration link. No SMS is sent automatically: call each nurse and use “SMS registration link” on their page. Nurses already invited or on Do Not Contact are skipped.</span>
+            <span className="small muted">Activates each nurse’s registration link. No SMS is sent automatically: call each nurse and use “SMS WhatsApp link” on their page. Nurses already invited or on Do Not Contact are skipped.</span>
           </div>
         )}
 

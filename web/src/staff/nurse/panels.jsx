@@ -258,12 +258,12 @@ export function ContactPanel({ d }) {
           ? <a className="btn primary" href={c.tel} onClick={() => { logContact('call'); toast('After the call, choose its status under “Call log”.'); document.getElementById('call-outcome')?.focus(); }}>📞 Call {n.mobile}</a>
           : <button className="btn" disabled title={c.blocked}>📞 Call</button>}
         {c.sms
-          ? <a className="btn" href={c.sms} onClick={() => logContact('sms')}>💬 SMS registration link</a>
+          ? <a className="btn" href={c.sms} onClick={() => logContact('sms')}>💬 SMS WhatsApp link</a>
           : <button className="btn" disabled title={c.sms_blocked}>💬 SMS</button>}
       </div>
       <div className="small muted" style={{ marginTop: 6 }}>
         {c.blocked ? `Calls and SMS are blocked: ${c.blocked}.`
-          : 'Opens your phone’s dialer / SMS app.' + (c.sms_blocked ? ` SMS unavailable: ${c.sms_blocked}.` : ' The SMS contains the nurse’s personal registration link; sending it marks the nurse as Invited.')}
+          : 'Opens your phone’s dialer / SMS app.' + (c.sms_blocked ? ` SMS unavailable: ${c.sms_blocked}.` : ' The SMS contains our WhatsApp chat link with the nurse’s code; when they message us they get their registration link on WhatsApp. Sending it marks the nurse as Invited.')}
       </div>
     </div>
   );
