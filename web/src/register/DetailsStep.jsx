@@ -76,10 +76,12 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
     setF(x => ({ ...x, taluk: v === OTHER ? '' : v }));
   }
   function addLocation() {
-    if (!loc.district || !loc.taluk || !loc.village) return;
-    const label = `${loc.village}, ${loc.taluk} (${loc.district})`;
+    // ";" separates saved locations and "," the parts of one, so neither may appear in a typed village.
+    const village = loc.village.replace(/[;,]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!loc.district || !loc.taluk || !village) return;
+    const label = `${village}, ${loc.taluk} (${loc.district})`;
     setF(x => (x.locations.includes(label) || x.locations.length >= MAX_LOCATIONS ? x : { ...x, locations: [...x.locations, label] }));
-    setLoc(l => ({ ...l, village: '' }));
+    setLoc(l => ({ ...l, village: '', villageOther: false }));
   }
   const removeLocation = label => setF(x => ({ ...x, locations: x.locations.filter(l => l !== label) }));
 
@@ -129,14 +131,20 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
               <select aria-label="Work location district" value={loc.district} onChange={e => setLoc({ district: e.target.value, taluk: '', village: '' })}>
                 <option value="">District…</option>{d.districts.map(x => <option key={x}>{x}</option>)}
               </select>
-              <select aria-label="Work location taluk" value={loc.taluk} onChange={e => setLoc(l => ({ ...l, taluk: e.target.value, village: '' }))} disabled={!loc.district}>
+              <select aria-label="Work location taluk" value={loc.taluk} onChange={e => setLoc(l => ({ ...l, taluk: e.target.value, village: '', villageOther: false }))} disabled={!loc.district}>
                 <option value="">Taluk…</option>{(taluks[loc.district] || []).map(x => <option key={x}>{x}</option>)}
               </select>
-              <select aria-label="Work location village" value={loc.village} onChange={e => setLoc(l => ({ ...l, village: e.target.value }))} disabled={!villages.data}>
+              <select aria-label="Work location village" value={loc.villageOther ? OTHER : loc.village}
+                onChange={e => setLoc(l => ({ ...l, villageOther: e.target.value === OTHER, village: e.target.value === OTHER ? '' : e.target.value }))} disabled={!villages.data}>
                 <option value="">{villages.isFetching ? 'Loading villages…' : 'Village…'}</option>
                 {(villages.data?.villages || []).map(x => <option key={x}>{x}</option>)}
+                <option value={OTHER}>Other (not listed)</option>
               </select>
-              <button type="button" className="btn" onClick={addLocation} disabled={!loc.village}>Add</button>
+              {loc.villageOther && (
+                <input type="text" className="wide" aria-label="Village or area name" placeholder="Type the village or area" maxLength={100}
+                  value={loc.village} onChange={e => setLoc(l => ({ ...l, village: e.target.value }))} />
+              )}
+              <button type="button" className="btn" onClick={addLocation} disabled={!loc.village.trim()}>Add</button>
             </div>
           )}
           {villages.isError && <p className="small" role="alert">Could not load villages. Check your connection and choose the taluk again.</p>}
