@@ -542,6 +542,17 @@ test('uploads: size limit, type from file contents, valid link required', async 
   assert.equal(live.length, 1);
 });
 
+test('privacy policy and data deletion pages are plain HTML (they work without JavaScript)', async () => {
+  for (const [path, heading] of [['/privacy', 'Privacy Policy'], ['/data-deletion', 'Data Deletion']]) {
+    const res = await fetch(B + path);
+    assert.equal(res.status, 200, path);
+    assert.match(res.headers.get('content-type'), /text\/html/);
+    const html = await res.text();
+    assert.ok(html.includes(`<h1>${heading}</h1>`), `${path} has its content in the HTML, not only the app shell`);
+    assert.ok(!html.includes('id="root"'), `${path} is not the single-page app`);
+  }
+});
+
 test('security: cross-site requests refused, secrets never returned, headers set', async () => {
   const r = await fetch(B + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' }, body: JSON.stringify({ username: 'admin', password: 'Admin@123' }) });
   assert.equal(r.status, 403, 'foreign Origin refused');

@@ -93,6 +93,10 @@ export function createApp() {
     // Hashed build assets can be cached forever; index.html must always be revalidated.
     app.use('/assets', express.static(join(config.webDist, 'assets'), { immutable: true, maxAge: '1y', fallthrough: false }));
     app.use(express.static(config.webDist, { index: false, maxAge: '1h' }));
+    // Plain HTML pages that must work without JavaScript (Meta checks these links): /privacy, /data-deletion.
+    for (const page of ['privacy', 'data-deletion']) {
+      app.get(`/${page}`, (req, res) => res.set('Cache-Control', 'public, max-age=3600').sendFile(join(config.webDist, `${page}.html`)));
+    }
     app.get('/{*path}', (req, res) => res.set('Cache-Control', 'no-cache').sendFile(indexHtml));
   } else {
     app.get('/', (req, res) => res.type('text/plain').send('API is running. Build the web app (npm run build) or use the Vite dev server.'));
