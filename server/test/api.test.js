@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes, scryptSync, createHmac } from 'node:crypto';
 import { createServer } from 'node:http';
+import { cleanAccountNumber, ACCOUNT_RE } from '../src/domain/workflow.js';
 
 // Same format as src/lib/crypto.js hashPassword (not imported: config would load .env's database settings).
 const hashPassword = pw => { const salt = randomBytes(16); return `${salt.toString('hex')}:${scryptSync(pw, salt, 32).toString('hex')}`; };
@@ -137,7 +138,27 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.equal((await uploadDoc(t, 'GOVT_ID', Buffer.from('not a pdf'))).status, 400, 'content sniffed');
   for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) assert.equal((await uploadDoc(t, type, pdf)).status, 200);
   assert.equal((await pub(`${t}/payout`, { account_holder: 'x' })).status, 409, 'bank details only after verification');
+  assert.equal((await pub(`${t}/social/confirm`, {})).status, 409, 'follow step comes after submitting documents');
   assert.equal((await pub(`${t}/submit-docs`, {})).status, 200);
+
+  // "Follow us": every page must be opened before confirming; each opening is recorded once.
+  let social = (await pub(`${t}/form`)).body.social;
+  assert.equal(social.needed, true);
+  assert.deepEqual(Object.keys(social.links), ['instagram', 'facebook', 'youtube']);
+  assert.equal((await pub(`${t}/social/open`, { network: 'tiktok' })).status, 400);
+  await pub(`${t}/social/open`, { network: 'instagram' });
+  await pub(`${t}/social/open`, { network: 'instagram' });
+  const notYet = await pub(`${t}/social/confirm`, {});
+  assert.equal(notYet.status, 400);
+  assert.match(notYet.body.error, /Facebook, YouTube/);
+  for (const k of ['facebook', 'youtube']) await pub(`${t}/social/open`, { network: k });
+  assert.equal((await pub(`${t}/social/confirm`, {})).status, 200);
+  social = (await pub(`${t}/form`)).body.social;
+  assert.equal(social.needed, false);
+  assert.ok(social.followed_at);
+  const ev = (await admin('/api/nurses/' + id)).body.events;
+  assert.equal(ev.filter(e => /Opened Uyir's Instagram page/.test(e.note || '')).length, 1, 'opening recorded once');
+  assert.ok(ev.some(e => /Confirmed following Uyir/.test(e.note || '')));
 
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'VERIFIED' })).status, 409, 'docs must be reviewed first');
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'REJECTED' })).status, 400, 'reason required');
@@ -149,9 +170,16 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.equal((await pub(`${t}/payout`, { ...bank, ifsc: 'BAD' })).status, 400, 'IFSC validated');
   // Every bank's format: short co-operative numbers, letters, spaces and hyphens.
   assert.equal((await pub(`${t}/payout`, { ...bank, account_number: '12345', account_number_confirm: '12345' })).status, 400, 'too short');
-  assert.equal((await pub(`${t}/payout`, { ...bank, account_number: '1234567', account_number_confirm: '1234567' })).status, 200, '7-digit co-operative bank');
-  assert.equal((await pub(`${t}/payout`, { ...bank, account_number: 'sb-0012 345a', account_number_confirm: 'SB0012345A' })).status, 200, 'letters, spaces and hyphens');
-  assert.equal((await pub(`${t}/payout`, bank)).status, 200);
+  for (const [raw, clean] of [['1234567', '1234567'], ['sb-0012 345a', 'SB0012345A'], ['1234 5678-9012', '123456789012']]) {
+    assert.equal(cleanAccountNumber(raw), clean);
+    assert.ok(ACCOUNT_RE.test(clean), `${raw} accepted`);
+  }
+  // Spaces and hyphens are ignored (saved as 123456789012).
+  assert.equal((await pub(`${t}/payout`, { ...bank, account_number: '1234 5678-9012' })).status, 200);
+  // Submitted once: no changes afterwards.
+  const again = await pub(`${t}/payout`, { ...bank, account_number: '999999999', account_number_confirm: '999999999' });
+  assert.equal(again.status, 409, 'bank details cannot be changed after submission');
+  assert.match(again.body.error, /cannot be changed/);
 
   n = (await admin('/api/nurses/' + id)).body;
   assert.equal(n.nurse.status, 'VERIFIED');

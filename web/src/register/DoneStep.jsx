@@ -4,7 +4,7 @@ const DONE = {
   REJECTED: ['Registration not approved', n => `We are unable to approve your registration at this time.${n.review_note ? ' Reason: ' + n.review_note : ''} Please contact the Uyir team if you have questions.`],
 };
 
-export function DoneStep({ d, onEditPayout }) {
+export function DoneStep({ d }) {
   const n = d.nurse, p = d.payout;
   const [title, text] = DONE[n.status] || [n.status_label, () => ''];
   return (
@@ -15,7 +15,6 @@ export function DoneStep({ d, onEditPayout }) {
       {p.on_file && (
         <p className="small muted">
           Payment details on file: {p.holder} · a/c ••••{p.last4} · {p.ifsc}
-          {p.needed && <> · <button type="button" className="linkbtn" onClick={onEditPayout}>change</button></>}
         </p>
       )}
     </>

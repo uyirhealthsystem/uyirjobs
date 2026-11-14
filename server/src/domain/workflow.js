@@ -87,7 +87,20 @@ export const requiredDocTypes = nurse => Object.keys(DOC_TYPES).filter(k => isDo
 
 // Bank / payment details are collected once the nurse is verified.
 export const PAYOUT_STATUSES = ['VERIFIED'];
+
+// Uyir's social pages. After submitting their documents, nurses are asked to follow all of them
+// (open each page, then confirm) before they continue.
+export const SOCIAL = {
+  instagram: { label: 'Instagram', action: 'Follow on Instagram', url: 'https://www.instagram.com/dhspvtltd' },
+  facebook:  { label: 'Facebook',  action: 'Follow on Facebook',  url: 'https://www.facebook.com/profile.php?id=61595657035796' },
+  youtube:   { label: 'YouTube',   action: 'Subscribe on YouTube', url: 'https://www.youtube.com/@UyirHealthApp' },
+};
+export const SOCIAL_STATUSES = ['SUBMITTED', 'VERIFIED'];
 export const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+// Account number formats differ by bank (public, private, co-operative, regional rural, small finance,
+// payments banks): 6–20 letters or digits; spaces and hyphens are ignored.
+export const cleanAccountNumber = v => String(v ?? '').replace(/[\s-]/g, '').toUpperCase();
+export const ACCOUNT_RE = /^[A-Z0-9]{6,20}$/;
 
 export const DISTRICTS = [
   'Ariyalur', 'Chengalpattu', 'Chennai', 'Coimbatore', 'Cuddalore', 'Dharmapuri', 'Dindigul', 'Erode',

@@ -1,3 +1,5 @@
+import { YouTube } from '../components/YouTube.jsx';
+
 // First screen of the nurse portal: who we are, before the nurse starts registering.
 // The trust points describe what the system really does (see server/src: KMS-encrypted S3 and RDS
 // in ap-south-1, bank numbers AES-encrypted and shown back as the last 4 digits only).
@@ -22,6 +24,8 @@ export function WelcomeStep({ info, onStart }) {
         Vanakkam {info.first_name}! Join a trusted network of nurses bringing quality care closer to
         families across Tamil Nadu.
       </p>
+
+      <YouTube id="RrCTiMxtG3Y" title="Overview About Uyir Health App" />
 
       <ul className="welcome-trust">
         {TRUST.map(([icon, title, text]) => (

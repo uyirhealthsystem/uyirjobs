@@ -46,8 +46,9 @@ export function createApp() {
       useDefaults: false,
       directives: {
         defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:', 'blob:'], connectSrc: ["'self'"], fontSrc: ["'self'"],
-        frameSrc: ["'self'", 'blob:'], objectSrc: ["'none'"], baseUri: ["'none'"], formAction: ["'self'"], frameAncestors: ["'self'"],
+        // YouTube: the welcome video's thumbnail (i.ytimg.com) and its privacy-enhanced player.
+        imgSrc: ["'self'", 'data:', 'blob:', 'https://i.ytimg.com'], connectSrc: ["'self'"], fontSrc: ["'self'"],
+        frameSrc: ["'self'", 'blob:', 'https://www.youtube-nocookie.com'], objectSrc: ["'none'"], baseUri: ["'none'"], formAction: ["'self'"], frameAncestors: ["'self'"],
       },
     },
     strictTransportSecurity: config.isProd ? { maxAge: 31536000, includeSubDomains: true } : false,

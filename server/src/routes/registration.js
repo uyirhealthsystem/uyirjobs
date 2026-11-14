@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { q, one, tx } from '../db/pool.js';
 import { httpError } from '../lib/errors.js';
 import { encryptField } from '../lib/crypto.js';
-import { STATUSES, DOC_TYPES, DISTRICTS, PAYOUT_STATUSES, IFSC_RE, requiredDocTypes, normalizeDistrict, REG_FIELDS } from '../domain/workflow.js';
+import { STATUSES, DOC_TYPES, DISTRICTS, PAYOUT_STATUSES, SOCIAL, SOCIAL_STATUSES, IFSC_RE, ACCOUNT_RE, cleanAccountNumber, requiredDocTypes, normalizeDistrict, REG_FIELDS } from '../domain/workflow.js';
 import { logEvent } from '../services/events.js';
 import { transition, missingRequiredDocs } from '../services/nurses.js';
 import { storage, documentKey } from '../services/storage.js';
@@ -65,6 +65,10 @@ registrationRouter.get('/:t/form', withNurse, async (req, res) => {
     },
     districts: DISTRICTS, taluks: TALUKS,
     documents: docs, missing, required: requiredDocTypes(n),
+    social: {
+      needed: SOCIAL_STATUSES.includes(n.status) && !n.social_followed_at,
+      links: SOCIAL, opened: n.social_opened || [], followed_at: n.social_followed_at,
+    },
     payout: {
       needed: PAYOUT_STATUSES.includes(n.status),
       on_file: !!n.payout_added_at,
@@ -162,26 +166,50 @@ registrationRouter.post('/:t/submit-docs', withNurse, async (req, res) => {
   res.json({ ok: true });
 });
 
+// "Follow us": the nurse opens each social page (recorded), then confirms they follow all of them.
+registrationRouter.post('/:t/social/open', withNurse, async (req, res) => {
+  const n = req.nurse, network = String(req.body?.network || '');
+  if (!SOCIAL[network]) throw httpError(400, 'Unknown page');
+  const row = await one(`UPDATE nurses SET social_opened = array_append(social_opened, ?), updated_at = now()
+      WHERE id = ? AND NOT (? = ANY(social_opened)) RETURNING social_opened`, network, n.id, network);
+  if (row) await logEvent(n.id, 'registration', { note: `Opened Uyir's ${SOCIAL[network].label} page`, actor: 'nurse' });
+  res.json({ ok: true, opened: row?.social_opened ?? n.social_opened });
+});
+
+registrationRouter.post('/:t/social/confirm', withNurse, async (req, res) => {
+  const n = req.nurse;
+  if (!SOCIAL_STATUSES.includes(n.status)) throw httpError(409, 'Please submit your documents first');
+  const missing = Object.keys(SOCIAL).filter(k => !(n.social_opened || []).includes(k));
+  if (missing.length) throw httpError(400, `Please open and follow: ${missing.map(k => SOCIAL[k].label).join(', ')}`);
+  if (!n.social_followed_at) {
+    await q(`UPDATE nurses SET social_followed_at = now(), updated_at = now() WHERE id = ?`, n.id);
+    await logEvent(n.id, 'registration', { note: 'Confirmed following Uyir on Instagram, Facebook and YouTube', actor: 'nurse' });
+  }
+  res.json({ ok: true });
+});
+
 // Bank / payment details, collected once the nurse is verified. The account number is encrypted at rest.
+// Submitted once: after that they cannot be changed through the portal.
+const PAYOUT_LOCKED = 'Your bank details are already submitted and cannot be changed. Please contact the Uyir team if they are wrong.';
 registrationRouter.post('/:t/payout', withNurse, async (req, res) => {
   const n = req.nurse, body = req.body || {};
   if (!PAYOUT_STATUSES.includes(n.status)) throw httpError(409, 'Payment details are collected after your documents are verified');
+  if (n.payout_added_at) throw httpError(409, PAYOUT_LOCKED);
   const holder = String(body.account_holder || '').trim().slice(0, 120);
-  // Account number formats differ by bank (public, private, co-operative, regional rural, small finance,
-  // payments banks): 6–20 letters or digits; spaces and hyphens are ignored.
-  const acctOf = v => String(v || '').replace(/[\s-]/g, '').toUpperCase();
-  const acct = acctOf(body.account_number);
+  const acct = cleanAccountNumber(body.account_number);
   const ifsc = String(body.ifsc || '').trim().toUpperCase();
   const upi = String(body.upi || '').trim().slice(0, 100) || null;
   if (!holder) throw httpError(400, 'Enter the account holder name');
-  if (!/^[A-Z0-9]{6,20}$/.test(acct)) throw httpError(400, 'Enter your account number exactly as on your passbook (6–20 letters or digits)');
-  if (acctOf(body.account_number_confirm) !== acct) throw httpError(400, 'Account numbers do not match');
+  if (!ACCOUNT_RE.test(acct)) throw httpError(400, 'Enter your account number exactly as on your passbook (6–20 letters or digits)');
+  if (cleanAccountNumber(body.account_number_confirm) !== acct) throw httpError(400, 'Account numbers do not match');
   if (!IFSC_RE.test(ifsc)) throw httpError(400, 'Enter a valid 11-character IFSC code');
   if (upi && !/^[\w.\-]{2,}@[a-z]{2,}$/i.test(upi)) throw httpError(400, 'Invalid UPI ID');
   await tx(async () => {
-    await q(`UPDATE nurses SET payout_account_holder = ?, payout_account_enc = ?, payout_account_last4 = ?, payout_ifsc = ?, payout_upi = ?,
-        payout_added_at = now(), updated_at = now() WHERE id = ?`, holder, encryptField(acct), acct.slice(-4), ifsc, upi, n.id);
-    await logEvent(n.id, 'registration', { note: `${n.payout_added_at ? 'Updated' : 'Added'} payment details (a/c ••••${acct.slice(-4)}, ${ifsc})`, actor: 'nurse' });
+    // "payout_added_at IS NULL": two submits at once save only the first.
+    const saved = await q(`UPDATE nurses SET payout_account_holder = ?, payout_account_enc = ?, payout_account_last4 = ?, payout_ifsc = ?, payout_upi = ?,
+        payout_added_at = now(), updated_at = now() WHERE id = ? AND payout_added_at IS NULL RETURNING id`, holder, encryptField(acct), acct.slice(-4), ifsc, upi, n.id);
+    if (!saved.length) throw httpError(409, PAYOUT_LOCKED);
+    await logEvent(n.id, 'registration', { note: `Added payment details (a/c ••••${acct.slice(-4)}, ${ifsc})`, actor: 'nurse' });
   });
   res.json({ ok: true });
 });

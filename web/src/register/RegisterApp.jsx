@@ -10,13 +10,13 @@ import { DetailsStep } from './DetailsStep.jsx';
 import { DocumentsStep } from './DocumentsStep.jsx';
 import { PayoutStep } from './PayoutStep.jsx';
 import { DoneStep } from './DoneStep.jsx';
+import { FollowStep } from './FollowStep.jsx';
 import { WelcomeStep } from './WelcomeStep.jsx';
 
 export default function RegisterApp() {
   const [params] = useSearchParams();
   const t = params.get('t') || '';
   const [editing, setEditing] = useState(false);
-  const [editingPayout, setEditingPayout] = useState(false);
   const [started, setStarted] = useState(false);   // past the welcome screen (shown before registering)
   const qc = useQueryClient();
   const reg = useMemo(() => regApi(t), [t]);
@@ -43,8 +43,11 @@ export default function RegisterApp() {
     if (n.status === 'INVITED' && !started) body = <WelcomeStep info={info.data} onStart={() => { setStarted(true); window.scrollTo(0, 0); }} />;
     else if (n.status === 'INVITED' || editing) body = <DetailsStep {...ctx} d={d} onDone={() => setEditing(false)} />;
     else if (['REGISTERED', 'CORRECTION_REQUIRED'].includes(n.status)) body = <DocumentsStep {...ctx} d={d} onEdit={() => setEditing(true)} />;
-    else if (d.payout.needed && (!d.payout.on_file || editingPayout)) body = <PayoutStep {...ctx} d={d} onDone={() => setEditingPayout(false)} onCancel={d.payout.on_file ? () => setEditingPayout(false) : null} />;
-    else body = <DoneStep d={d} onEditPayout={() => setEditingPayout(true)} />;
+    // After submitting documents, the nurse follows Uyir's social pages before anything else.
+    else if (d.social?.needed) body = <FollowStep {...ctx} d={d} />;
+    // Bank details are asked once; after that they cannot be changed here.
+    else if (d.payout.needed && !d.payout.on_file) body = <PayoutStep {...ctx} d={d} />;
+    else body = <DoneStep d={d} />;
   }
 
   return (

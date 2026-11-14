@@ -168,7 +168,10 @@ export function RegistrationPanel({ n }) {
     ['Preferred locations', n.preferred_locations], ['Service interests', n.service_interests], ['Mobile verified', when(n.mobile_verified_at)], ['Registered', when(n.registered_at)],
     ['Bank details', n.payout_added_at
       ? `${n.payout_account_holder} · a/c ••••${n.payout_account_last4} · ${n.payout_ifsc}${n.payout_upi ? ' · UPI ' + n.payout_upi : ''}`
-      : n.status === 'VERIFIED' ? 'Pending — nurse adds these through their link' : '—']];
+      : n.status === 'VERIFIED' ? 'Pending — nurse adds these through their link' : '—'],
+    ['Follows Uyir (Instagram, Facebook, YouTube)', n.social_followed_at
+      ? `Confirmed ${when(n.social_followed_at)}`
+      : n.social_opened?.length ? `Opened: ${n.social_opened.join(', ')} (not confirmed yet)` : '—']];
   const filled = n.registered_at || EDIT_FIELDS.some(([k]) => n[k] != null && n[k] !== '');
   return (
     <div className="panel">

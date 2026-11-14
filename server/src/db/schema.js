@@ -168,6 +168,10 @@ ALTER TABLE nurses ADD COLUMN IF NOT EXISTS deleted_by bigint REFERENCES users(i
 ALTER TABLE nurses ADD COLUMN IF NOT EXISTS deletion_reason text;
 -- Session clean-up when a user's access changes.
 CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_id);
+-- "Follow us" step after documents are submitted: which pages the nurse opened, and when they
+-- confirmed following all of them (the networks cannot tell us whether they really followed).
+ALTER TABLE nurses ADD COLUMN IF NOT EXISTS social_opened text[] NOT NULL DEFAULT '{}';
+ALTER TABLE nurses ADD COLUMN IF NOT EXISTS social_followed_at timestamptz;
 `;
 
 // The app only collects nurse information (no CRM). Upgrade data from the CRM version in place:
