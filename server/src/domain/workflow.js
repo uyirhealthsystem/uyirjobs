@@ -68,11 +68,13 @@ export const LEGACY_ROLE = { state_admin: 'super_admin', district_coordinator: '
 export const DOC_TYPES = {
   QUALIFICATION: { label: 'Nursing qualification certificate', required: true },
   COUNCIL_REG:   { label: 'Nursing council registration',      required: true },
-  GOVT_ID:       { label: 'Government ID',                     required: true },
-  EXPERIENCE:    { label: 'Experience documents',              required: 'has_experience', hint: 'Required if you declared nursing experience' },
+  GOVT_ID:       { label: 'Government ID',                     required: true, hint: 'Aadhaar, Driving Licence, Passport or ABHA card' },
+  EXPERIENCE:    { label: 'Experience documents',              required: false, hint: 'Only if applicable' },
   OTHER:         { label: 'Other',                             required: false },
 };
 
+// Named rules for `required` (e.g. required: 'has_experience' makes a document required only
+// for nurses who declared experience). None is in use at the moment.
 const REQUIRED_RULES = {
   has_experience: n => Number(n?.experience_years) > 0,
 };

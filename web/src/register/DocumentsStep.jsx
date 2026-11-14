@@ -63,6 +63,7 @@ function DocRow({ type, label, hint, required, doc, reg, refresh }) {
   return (
     <div className="docrow">
       <b>{label}</b>{required ? ' *' : <span className="muted small"> ({hint || 'if applicable'})</span>}
+      {required && hint && <div className="small muted">{hint}</div>}
       {doc && (
         <div className="small">
           {doc.filename} — <span className={`pill d-${doc.status}`}>{doc.status === 'SUBMITTED' ? 'uploaded' : doc.status.toLowerCase()}</span>

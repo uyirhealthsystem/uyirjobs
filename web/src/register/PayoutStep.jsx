@@ -19,8 +19,10 @@ export function PayoutStep({ reg, d, refresh, onDone, onCancel }) {
       {p.on_file && <p className="small">Currently on file: a/c ••••{p.last4} · {p.ifsc}</p>}
       <form onSubmit={e => { e.preventDefault(); save.mutate(); }}>
         <label className="f"><span>Account holder name *</span><input value={f.account_holder} onChange={set('account_holder')} required autoComplete="name" /></label>
-        <label className="f"><span>Account number *</span><input value={f.account_number} onChange={set('account_number')} inputMode="numeric" autoComplete="off" pattern="[\d ]{9,22}" required /></label>
-        <label className="f"><span>Re-enter account number *</span><input value={f.account_number_confirm} onChange={set('account_number_confirm')} inputMode="numeric" autoComplete="off" required /></label>
+        <label className="f"><span>Account number * <span className="muted small">(any bank, as on your passbook)</span></span>
+          <input value={f.account_number} onChange={set('account_number')} autoComplete="off" pattern="[A-Za-z0-9 \-]{6,30}" maxLength={30} required
+            title="6–20 letters or digits, as printed on your passbook or cheque" /></label>
+        <label className="f"><span>Re-enter account number *</span><input value={f.account_number_confirm} onChange={set('account_number_confirm')} autoComplete="off" maxLength={30} required /></label>
         <label className="f"><span>IFSC code *</span><input value={f.ifsc} onChange={set('ifsc')} maxLength={11} pattern="[A-Za-z]{4}0[A-Za-z0-9]{6}" required /></label>
         <label className="f"><span>UPI ID (optional)</span><input value={f.upi} onChange={set('upi')} /></label>
         {save.isError && <div className="banner dnc" role="alert">{save.error.message}</div>}

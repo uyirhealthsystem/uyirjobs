@@ -167,12 +167,15 @@ registrationRouter.post('/:t/payout', withNurse, async (req, res) => {
   const n = req.nurse, body = req.body || {};
   if (!PAYOUT_STATUSES.includes(n.status)) throw httpError(409, 'Payment details are collected after your documents are verified');
   const holder = String(body.account_holder || '').trim().slice(0, 120);
-  const acct = String(body.account_number || '').replace(/\s/g, '');
+  // Account number formats differ by bank (public, private, co-operative, regional rural, small finance,
+  // payments banks): 6–20 letters or digits; spaces and hyphens are ignored.
+  const acctOf = v => String(v || '').replace(/[\s-]/g, '').toUpperCase();
+  const acct = acctOf(body.account_number);
   const ifsc = String(body.ifsc || '').trim().toUpperCase();
   const upi = String(body.upi || '').trim().slice(0, 100) || null;
   if (!holder) throw httpError(400, 'Enter the account holder name');
-  if (!/^\d{9,18}$/.test(acct)) throw httpError(400, 'Account number must be 9–18 digits');
-  if (String(body.account_number_confirm || '').replace(/\s/g, '') !== acct) throw httpError(400, 'Account numbers do not match');
+  if (!/^[A-Z0-9]{6,20}$/.test(acct)) throw httpError(400, 'Enter your account number exactly as on your passbook (6–20 letters or digits)');
+  if (acctOf(body.account_number_confirm) !== acct) throw httpError(400, 'Account numbers do not match');
   if (!IFSC_RE.test(ifsc)) throw httpError(400, 'Enter a valid 11-character IFSC code');
   if (upi && !/^[\w.\-]{2,}@[a-z]{2,}$/i.test(upi)) throw httpError(400, 'Invalid UPI ID');
   await tx(async () => {

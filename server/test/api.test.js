@@ -147,6 +147,10 @@ test('full flow: add & invite → nurse registers → documents → review → v
   const bank = { account_holder: 'Kavya T', account_number: '123456789012', account_number_confirm: '123456789012', ifsc: 'sbin0001234' };
   assert.equal((await pub(`${t}/payout`, { ...bank, account_number_confirm: '1' })).status, 400, 'account numbers must match');
   assert.equal((await pub(`${t}/payout`, { ...bank, ifsc: 'BAD' })).status, 400, 'IFSC validated');
+  // Every bank's format: short co-operative numbers, letters, spaces and hyphens.
+  assert.equal((await pub(`${t}/payout`, { ...bank, account_number: '12345', account_number_confirm: '12345' })).status, 400, 'too short');
+  assert.equal((await pub(`${t}/payout`, { ...bank, account_number: '1234567', account_number_confirm: '1234567' })).status, 200, '7-digit co-operative bank');
+  assert.equal((await pub(`${t}/payout`, { ...bank, account_number: 'sb-0012 345a', account_number_confirm: 'SB0012345A' })).status, 200, 'letters, spaces and hyphens');
   assert.equal((await pub(`${t}/payout`, bank)).status, 200);
 
   n = (await admin('/api/nurses/' + id)).body;
@@ -163,14 +167,14 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.ok(!csv.body.includes('123456789012'), 'full account number is never exported');
 });
 
-test('experience documents are required only when experience is declared', async () => {
+test('experience documents are optional (only if applicable), even with experience declared', async () => {
   const admin = await login('tenkasi.admin', 'Tenkasi@123');
   const { id } = (await admin('/api/nurses', { name: 'Exp Test', mobile: '9999900003', invite: true })).body;
   const t = await tokenOf(admin, id);
   await pub(`${t}/details`, { ...DETAILS, experience_years: 0 });
   assert.ok(!(await pub(`${t}/form`, undefined)).body.missing.includes('EXPERIENCE'));
   await pub(`${t}/details`, { ...DETAILS, experience_years: 4 });
-  assert.ok((await pub(`${t}/form`, undefined)).body.missing.includes('EXPERIENCE'));
+  assert.ok(!(await pub(`${t}/form`, undefined)).body.missing.includes('EXPERIENCE'));
 });
 
 test('District Admins are confined to their own district', async () => {
