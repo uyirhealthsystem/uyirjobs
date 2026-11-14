@@ -8,7 +8,7 @@ function normalize(e) {
   if (e.code === '22P02' || e.code === '22001') return httpError(400, 'Invalid input');
   if (e.type === 'entity.too.large') return httpError(413, 'Request too large');
   if (e.type === 'entity.parse.failed') return httpError(400, 'Invalid JSON');
-  if (e instanceof multer.MulterError) return httpError(e.code === 'LIMIT_FILE_SIZE' ? 413 : 400, e.code === 'LIMIT_FILE_SIZE' ? 'File must be under 5 MB' : e.message);
+  if (e instanceof multer.MulterError) return httpError(e.code === 'LIMIT_FILE_SIZE' ? 413 : 400, e.code === 'LIMIT_FILE_SIZE' ? 'File is too large (up to 25 MB; larger PDFs are compressed to 5 MB)' : e.message);
   return e;
 }
 

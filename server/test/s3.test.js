@@ -78,7 +78,8 @@ test('documents are written to S3 with KMS encryption and viewed through presign
   const t = new URL((await json('/api/nurses/' + id, { cookie })).body.nurse.registration_url).searchParams.get('t');
   const otp = (await json(`/api/public/reg/${t}/otp`, { body: {} })).body.dev_otp;
   const session = (await json(`/api/public/reg/${t}/verify`, { body: { otp } })).body.session;
-  await json(`/api/public/reg/${t}/details`, { session, body: { consent: true, address: 'x', taluk: 'y', qualification: 'ANM', council_reg_no: 'TN9', work_preference: 'Either' } });
+  await json(`/api/public/reg/${t}/details`, { session, body: { consent: true, name: 'S3 Nurse', address: 'x', email: 's3@example.com', taluk: 'y', preferred_locations: 'Tenkasi (Tenkasi)', qualification: 'ANM',
+    council_reg_no: 'TN9', current_employment: 'Not working', experience_years: 0, work_preference: 'Either', service_interests: 'Home nursing' } });
 
   const pdf = Buffer.from('%PDF-1.4\n% test document\n%%EOF');
   const form = new FormData();

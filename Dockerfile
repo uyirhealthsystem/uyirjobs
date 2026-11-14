@@ -22,6 +22,9 @@ ENV NODE_ENV=production \
     WEB_DIST=/app/public
 WORKDIR /app
 
+# Ghostscript compresses oversized PDF uploads down to the 5 MB document limit.
+RUN apt-get update && apt-get install -y --no-install-recommends ghostscript && rm -rf /var/lib/apt/lists/*
+
 # Amazon RDS certificate bundle, so the database connection is verified TLS (DATABASE_CA_FILE).
 # (Not ADD --chmod: it also applies 644 to the created /app/certs folder, which the node user then can't enter.)
 ADD https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/certs/rds-global-bundle.pem

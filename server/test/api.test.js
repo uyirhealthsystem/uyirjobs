@@ -81,6 +81,11 @@ async function login(username, password, expect = 200) {
   };
 }
 const pub = async (path, body) => {
+  // The form sends every field, the name included: by default keep the nurse's current name.
+  if (body && path.endsWith('/details') && !('name' in body)) {
+    const form = await pub(path.replace(/details$/, 'form'));
+    body = { ...body, name: form.body.nurse?.name };
+  }
   const res = await fetch(`${B}/api/public/reg/${path}`, { method: body !== undefined ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json' }, body: body !== undefined ? JSON.stringify(body) : undefined });
   return { status: res.status, body: await res.json() };
 };
@@ -93,7 +98,8 @@ const uploadDoc = async (t, type, buf, filename = 'x.pdf', mime = 'application/p
   return { status: res.status, body: await res.json() };
 };
 const tokenOf = async (staff, id) => new URL((await staff('/api/nurses/' + id)).body.nurse.registration_url).searchParams.get('t');
-const DETAILS = { consent: true, address: 'x', taluk: 'y', qualification: 'GNM Diploma', council_reg_no: 'TN1', work_preference: 'Part-time' };
+const DETAILS = { consent: true, address: 'x', email: 'nurse@example.com', taluk: 'y', preferred_locations: 'Tenkasi (Tenkasi)', qualification: 'GNM Diploma',
+  council_reg_no: 'TN1', current_employment: 'Not working', experience_years: 0, work_preference: 'Part-time', service_interests: 'Home nursing' };
 
 test('full flow: add & invite → nurse registers → documents → review → verified → bank details', async () => {
   const admin = await login('tenkasi.admin', 'Tenkasi@123');
@@ -111,6 +117,9 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.equal((await pub(`${t}/otp`, {})).status, 404, 'OTP endpoint removed');
   assert.equal((await pub(`${t}/form`)).body.nurse.status, 'INVITED');
   assert.equal((await pub(`${t}/details`, { ...DETAILS, consent: false })).status, 400, 'consent required');
+  for (const k of ['name', 'email', 'preferred_locations', 'current_employment', 'experience_years', 'service_interests']) {
+    assert.equal((await pub(`${t}/details`, { ...DETAILS, [k]: '' })).status, 400, `${k} required`);
+  }
   assert.equal((await pub(`${t}/details`, DETAILS)).status, 200);
   assert.equal((await admin('/api/nurses/' + id)).body.nurse.status, 'REGISTERED');
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'SUBMITTED' })).status, 409, 'staff cannot submit for the nurse');
@@ -503,7 +512,10 @@ test('uploads: size limit, type from file contents, valid link required', async 
   const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)]);
   assert.equal((await uploadDoc('not-a-real-link-token', 'GOVT_ID', png)).status, 404, 'needs a valid registration link');
   assert.equal((await uploadDoc(t, 'NOPE', png)).status, 400, 'unknown document type');
-  assert.equal((await uploadDoc(t, 'GOVT_ID', Buffer.alloc(5 * 1024 * 1024 + 10, 0x25))).status, 413, 'over 5 MB');
+  assert.equal((await uploadDoc(t, 'GOVT_ID', Buffer.alloc(25 * 1024 * 1024 + 10, 0x25))).status, 413, 'over 25 MB');
+  // Over 5 MB: photos are refused (the portal compresses them first); a PDF that cannot be compressed below 5 MB is refused.
+  assert.equal((await uploadDoc(t, 'GOVT_ID', Buffer.concat([png, Buffer.alloc(5 * 1024 * 1024)]))).status, 413, 'photo over 5 MB');
+  assert.equal((await uploadDoc(t, 'GOVT_ID', Buffer.concat([Buffer.from('%PDF-1.4 '), Buffer.alloc(5 * 1024 * 1024)]))).status, 413, 'incompressible PDF over 5 MB');
   // The browser says PDF, the bytes say PNG: stored as what it really is.
   assert.equal((await uploadDoc(t, 'GOVT_ID', png, 'id.pdf', 'application/pdf')).status, 200);
   const doc = (await admin('/api/nurses/' + id)).body.documents.find(d => d.type === 'GOVT_ID');

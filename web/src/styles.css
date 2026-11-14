@@ -64,6 +64,9 @@ tr.click { cursor: pointer; }
 
 /* pills */
 .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; background: #eef0f3; color: #344054; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.chips .pill { font-size: 13px; padding: 4px 10px; }
+.chips .pill .linkbtn { margin-left: 4px; }
 .pill.g-invite { background: var(--info-soft); color: var(--info); }
 .pill.g-registration { background: var(--warn-soft); color: var(--warn); }
 .pill.g-review { background: #f3ebfd; color: #6b21a8; }

@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useToast } from '../components/Toast.jsx';
 
-const MAX = 5 * 1024 * 1024;
+import { compressPhoto } from '../lib/image.js';
+
+// PDFs over 5 MB (up to 25 MB) are compressed by the server; photos are compressed here to ≤ 500 KB.
+const MAX_PDF = 25 * 1024 * 1024;
 const ACCEPT = 'application/pdf,image/jpeg,image/png';
 
 export function DocumentsStep({ reg, info, d, refresh, onEdit }) {
@@ -17,7 +20,7 @@ export function DocumentsStep({ reg, info, d, refresh, onEdit }) {
       <div className="step">Step 2 of 3 · Documents</div>
       <h1>Upload your documents</h1>
       {n.status === 'CORRECTION_REQUIRED' && <div className="banner warn"><b>Correction needed:</b> {n.review_note || 'please check the notes below'}</div>}
-      <p className="muted small">PDF, JPG or PNG, up to 5 MB each. Photos must be clear and fully readable.</p>
+      <p className="muted small">PDF, JPG or PNG. Every document is required where marked. PDFs are kept under 5 MB and photos under 500 KB: larger files are compressed automatically. Photos must be clear and fully readable.</p>
       {Object.entries(info.docTypes).map(([k, t]) => (
         <DocRow key={k} type={k} label={t.label} hint={t.hint} required={d.required.includes(k)} doc={latest[k]} reg={reg} refresh={refresh} />
       ))}
@@ -33,8 +36,13 @@ export function DocumentsStep({ reg, info, d, refresh, onEdit }) {
 function DocRow({ type, label, hint, required, doc, reg, refresh }) {
   const toast = useToast();
   const [inputKey, setInputKey] = useState(0);
+  const [busy, setBusy] = useState('');
   const upload = useMutation({
-    mutationFn: file => {
+    mutationFn: async raw => {
+      const isPdf = raw.type === 'application/pdf' || /\.pdf$/i.test(raw.name);
+      let file = raw;
+      if (!isPdf) { setBusy('Compressing photo…'); file = await compressPhoto(raw); }
+      setBusy(isPdf && raw.size > 5 * 1024 * 1024 ? 'Uploading and compressing PDF…' : 'Uploading…');
       const form = new FormData();
       form.append('type', type);
       form.append('file', file, file.name);
@@ -42,12 +50,12 @@ function DocRow({ type, label, hint, required, doc, reg, refresh }) {
     },
     onSuccess: () => { toast('Uploaded'); refresh(); },
     onError: e => toast(e.message, true),
-    onSettled: () => setInputKey(k => k + 1),   // clear the file input
+    onSettled: () => { setBusy(''); setInputKey(k => k + 1); },   // clear the file input
   });
   function pick(e) {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > MAX) { toast('File must be under 5 MB', true); setInputKey(k => k + 1); return; }
+    if (file.size > MAX_PDF) { toast('File must be under 25 MB', true); setInputKey(k => k + 1); return; }
     // Some Android pickers report no type; the server checks the file's real contents either way.
     if (file.type && !ACCEPT.split(',').includes(file.type)) { toast('Upload a PDF, JPG or PNG file', true); setInputKey(k => k + 1); return; }
     upload.mutate(file);
@@ -64,7 +72,7 @@ function DocRow({ type, label, hint, required, doc, reg, refresh }) {
       {(!doc || doc.status !== 'VERIFIED') && (
         <div className="upload">
           <input key={inputKey} type="file" accept={ACCEPT} aria-label={`Upload ${label}`} onChange={pick} disabled={upload.isPending} />
-          {upload.isPending && <span className="small muted"> Uploading…</span>}
+          {upload.isPending && <span className="small muted"> {busy || 'Uploading…'}</span>}
         </div>
       )}
     </div>
