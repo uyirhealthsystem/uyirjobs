@@ -110,7 +110,7 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.equal(n.nurse.district, 'Tenkasi', 'district admin creates in own district');
   assert.equal(n.nurse.status, 'INVITED');
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'INVITED' })).status, 200, 'resend invite');
-  await sayHi('919999900001', `Hi Uyir ${n.nurse.wa_code}`);   // nurse taps the link in the SMS
+  await sayHi('919999900001', `Hi Uyir Team, I want to register. My code: ${n.nurse.wa_code}`);   // nurse taps the link in the SMS
 
   const t = await tokenOf(admin, id);
   // No OTP: the personal link opens the form straight away.
@@ -363,7 +363,7 @@ test('invite SMS carries our WhatsApp chat link; a nurse who says "Hi" on WhatsA
   assert.match(code, /^UY[2-9A-HJ-NP-Z]{6}$/);
   const sms = n.messages.find(m => m.template === 'INVITE');
   assert.equal(sms.channel, 'sms');
-  assert.ok(sms.body.includes(`https://wa.me/${BUSINESS}?text=${encodeURIComponent('Hi Uyir ' + code)}`), 'WhatsApp chat link with the code in the SMS: ' + sms.body);
+  assert.ok(sms.body.includes(`https://wa.me/${BUSINESS}?text=${encodeURIComponent('Hi Uyir Team, I want to register. My code: ' + code)}`), 'WhatsApp chat link with the code in the SMS: ' + sms.body);
   assert.ok(!sms.body.includes('/register?t='), 'no registration link in the SMS');
   assert.ok(sms.body.includes('Uyir Health App'), 'SMS names the Uyir Health App');
   assert.ok(!waSent.some(m => m.body.to === '919999900121'), 'no WhatsApp before the nurse messages us');
@@ -487,7 +487,7 @@ test('Call / SMS from the admin phone, and the call status log', async () => {
   assert.ok(d.contact.sms.startsWith('sms:+919999900151?body='));
   // The SMS carries our WhatsApp chat link with the nurse's code, not the registration link.
   assert.match(d.nurse.wa_code, /^UY[2-9A-HJ-NP-Z]{6}$/);
-  assert.ok(d.contact.sms_body.includes(`https://wa.me/${BUSINESS}?text=${encodeURIComponent('Hi Uyir ' + d.nurse.wa_code)}`), d.contact.sms_body);
+  assert.ok(d.contact.sms_body.includes(`https://wa.me/${BUSINESS}?text=${encodeURIComponent('Hi Uyir Team, I want to register. My code: ' + d.nurse.wa_code)}`), d.contact.sms_body);
   assert.ok(!d.contact.sms_body.includes('/register'), d.contact.sms_body);
   assert.equal(d.nurse.status, 'NEW', 'opening the page does not invite the nurse');
 

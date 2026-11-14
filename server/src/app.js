@@ -38,7 +38,7 @@ export function createApp() {
     },
     autoLogging: { ignore: req => req.url === '/healthz' || req.url.startsWith('/assets/') },
     customLogLevel: (req, res, err) => (err || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info'),
-    serializers: { req: r => ({ id: r.id, method: r.method, url: r.url.replace(/([?&]t=|\/reg\/)[^/&?]+/, '$1[token]') }) },
+    serializers: { req: r => ({ id: r.id, method: r.method, url: r.url.replace(/([?&]t=|\/reg\/)[^/&?]+/, '$1[token]').replace(/([?&]hub[._]verify_token=)[^&]*/g, '$1[redacted]') }) },
   }));
 
   app.use(helmet({

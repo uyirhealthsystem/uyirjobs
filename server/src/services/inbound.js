@@ -15,6 +15,9 @@ import { logEvent } from './events.js';
 import { queueMessage, replyText } from './messaging.js';
 import { transition, getNurse } from './nurses.js';
 import { CODE_RE } from './whatsapp.js';
+import { logger } from '../logger.js';
+
+const log = logger.child({ module: 'whatsapp-inbound' });
 
 /** 10-digit Indian mobile for a WhatsApp number like 919876543210, else null. */
 const indianMobile = from => (/^91[6-9]\d{9}$/.test(from) ? normalizeMobile(from) : null);
@@ -53,6 +56,7 @@ async function handleOne(m) {
     // Not an Indian mobile number: we can't register them.
     await replyText(m.from, 'NOT_FOUND');
     await q(`UPDATE whatsapp_inbound SET outcome = 'unmatched' WHERE id = ?`, fresh.id);
+    log.info({ inboundId: fresh.id, outcome: 'unmatched' }, 'WhatsApp message received (not an Indian number)');
     return;
   }
 
@@ -72,11 +76,15 @@ async function handleOne(m) {
     if (n.status === 'NEW') await transition(n.id, 'INVITED', { role: 'system', actor: 'nurse', quiet: true }, 'Nurse messaged us on WhatsApp');
     n = await getNurse(n.id);
     // Once per nurse. The row lock above makes this check safe against concurrent webhooks.
-    // A link that failed permanently doesn't count: the nurse's next message gets a fresh try.
-    const sent = await one(`SELECT 1 FROM messages WHERE nurse_id = ? AND channel = 'whatsapp' AND template = 'REG_LINK' AND status <> 'failed' LIMIT 1`, n.id);
+    // A link that failed permanently, or was only simulated (before WhatsApp was connected), never
+    // reached the nurse and doesn't count: their next message gets a fresh try.
+    const sent = await one(`SELECT 1 FROM messages WHERE nurse_id = ? AND channel = 'whatsapp' AND template = 'REG_LINK' AND status NOT IN ('failed', 'simulated') LIMIT 1`, n.id);
     if (!sent) await queueMessage(n, 'REG_LINK');
     outcome = created ? 'created' : isFirst ? 'linked' : 'matched';
+    // When there is no reply, say why: the link was already sent once (staff can resend it).
+    log.info({ inboundId: fresh.id, nurseId: n.id, outcome, reply: sent ? 'none: registration link already sent' : 'registration link queued' }, 'WhatsApp message received');
   }
+  if (outcome === 'dnc') log.info({ inboundId: fresh.id, nurseId: n.id, outcome }, 'WhatsApp message received (Do Not Contact: no reply)');
   await q(`UPDATE whatsapp_inbound SET nurse_id = ?, outcome = ? WHERE id = ?`, n.id, outcome, fresh.id);
 }
 

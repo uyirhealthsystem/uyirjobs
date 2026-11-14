@@ -5,7 +5,7 @@
 // See docs/WHATSAPP.md.
 //
 // Flow: the invite SMS carries a wa.me link that opens a chat with the business number,
-// pre-typed "Hi Uyir <code>". When the nurse sends it, Meta calls our webhook; we match the
+// pre-typed "Hi Uyir Team, I want to register. My code: <code>". When the nurse sends it, Meta calls our webhook; we match the
 // code (or the sender's number) to the nurse and reply with their registration link.
 // The nurse messaging us is their opt-in and opens a 24-hour window for free-text replies.
 //
@@ -23,8 +23,10 @@ const MAX_ATTEMPTS = 5;
 export const BUSINESS_NUMBER = config.WHATSAPP_BUSINESS_NUMBER;
 const log = logger.child({ module: 'whatsapp' });
 
-/** wa.me link that opens a chat with us, pre-typed with the nurse's code. */
-export const chatLink = code => `https://wa.me/${BUSINESS_NUMBER || '910000000000'}?text=${encodeURIComponent(`Hi Uyir ${code}`)}`;
+/** The message the chat link pre-types; the code at the end tells us which nurse sent it. */
+export const chatText = code => (code ? `Hi Uyir Team, I want to register. My code: ${code}` : 'Hi Uyir Team, I want to register.');
+/** wa.me link that opens a chat with us, pre-typed with chatText. */
+export const chatLink = code => `https://wa.me/${BUSINESS_NUMBER || '910000000000'}?text=${encodeURIComponent(chatText(code))}`;
 /** Invite codes look like UY7K3M9Q (no 0/O/1/I to avoid confusion). */
 export const CODE_RE = /\bUY[2-9A-HJ-NP-Z]{6}\b/i;
 
@@ -104,7 +106,9 @@ export async function sendDue(limit = 20) {
     try { r = await sendToMeta(m.payload); } catch (e) { r = { error: e.message, retry: true }; }
     if (r.id) {
       await q(`UPDATE messages SET status = 'sent', provider_id = ?, sent_at = now(), error = NULL, updated_at = now() WHERE id = ?`, r.id, m.id);
+      log.info({ messageId: m.id, attempts: m.attempts }, 'WhatsApp message accepted by Meta');
     } else if (r.retry && m.attempts < MAX_ATTEMPTS) {
+      log.warn({ messageId: m.id, attempts: m.attempts, error: r.error }, 'WhatsApp message failed, will retry');
       // Back off 30 s, 2 min, 8 min, 32 min …
       await q(`UPDATE messages SET status = 'queued', error = ?, next_attempt_at = now() + make_interval(secs => ?), updated_at = now() WHERE id = ?`,
         r.error, 30 * 4 ** (m.attempts - 1), m.id);
@@ -162,6 +166,8 @@ export async function applyStatuses(body) {
         WHERE provider_id = ? AND channel = 'whatsapp' AND (CASE status WHEN 'sent' THEN 1 WHEN 'delivered' THEN 2 WHEN 'read' THEN 3 WHEN 'failed' THEN 4 ELSE 0 END) < ?
         RETURNING id`, s.status, err, s.id, RANK[s.status]);
     n += r.length;
+    // Meta accepted the message earlier but could not deliver it (e.g. payment, number, policy).
+    if (err) log.warn({ messageId: r[0]?.id ?? null, error: err }, 'WhatsApp delivery failed (receipt from Meta)');
   }
   return n;
 }

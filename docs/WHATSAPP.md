@@ -1,7 +1,7 @@
 # Nurse messaging: SMS → WhatsApp → personal registration link
 
 ```
-Staff SMS from their own phone ──▶ "… chat with us on WhatsApp: https://wa.me/91XXXXXXXXXX?text=Hi%2C%20I%20want%20to%20register%20with%20Uyir%20Health"
+Staff SMS from their own phone ──▶ "… chat with us on WhatsApp: https://wa.me/91XXXXXXXXXX?text=Hi%20Uyir%20Team%2C%20I%20want%20to%20register.%20My%20code%3A%20UY7K3M9Q"
 Nurse taps it ──▶ WhatsApp opens on our business chat with that text typed ──▶ the nurse taps Send
 App receives it (webhook) ──▶ finds or creates the nurse ──▶ replies on WhatsApp with their personal registration link (once)
 ```
