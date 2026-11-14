@@ -7,7 +7,7 @@ const WORK = ['Full-time', 'Part-time', 'Either'];
 const EMPLOYMENT = ['Government hospital', 'Private hospital', 'Clinic / nursing home', 'Home care / self-employed', 'Not working currently'];
 const SERVICES = ['Home nursing', 'Elderly care', 'Post-operative care', 'Palliative care', 'Mother & baby care', 'Injections & IV', 'Wound care', 'Physiotherapy assistance'];
 // Block is not asked here (staff can still fill it in); the server keeps what is on file.
-const FIELDS = ['address', 'email', 'taluk', 'qualification', 'council_reg_no', 'current_employment', 'experience_years', 'work_preference'];
+const FIELDS = ['address', 'pincode', 'email', 'taluk', 'qualification', 'council_reg_no', 'current_employment', 'experience_years', 'work_preference'];
 const OTHER = '__other__';
 // The one preferred work location is stored as "Village, Taluk (District)". Older records may hold
 // several ("…; …") or just "Taluk (District)": the form starts from the first one.
@@ -96,12 +96,14 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
 
   return (
     <>
-      <div className="step">Step 1 of 3 · Your details</div>
+      <div className="step">Step 1 of 4 · Your details</div>
       <h1>Your details</h1>
       <p className="muted"><span className="mono">{n.mobile}</span> · all fields are required</p>
       <form onSubmit={submit}>
         {Text({ k: 'name', label: 'Full name (as on your nursing certificate)', maxLength: 200, autoComplete: 'name' })}
         {Text({ k: 'address', label: 'Address', autoComplete: 'street-address' })}
+        {Text({ k: 'pincode', label: 'Pincode', inputMode: 'numeric', autoComplete: 'postal-code', maxLength: 6, pattern: '6[0-4][0-9]{4}',
+          title: 'Tamil Nadu pincode: 6 digits, starting with 60 to 64' })}
         {Text({ k: 'email', label: 'Email', type: 'email', autoComplete: 'email' })}
 
         <label className="f"><span>District *</span>

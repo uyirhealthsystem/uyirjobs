@@ -21,7 +21,7 @@ export function FollowStep({ reg, d, refresh }) {
 
   return (
     <>
-      <div className="step">Last step · Follow Uyir</div>
+      <div className="step">Step 4 of 4 · Follow Uyir</div>
       <h1>Follow us to continue</h1>
       <p>Thank you for submitting your documents. Follow Uyir on Instagram, Facebook and YouTube: we share nursing work,
         updates and news there. Tap each button, follow us, then come back to this page.</p>

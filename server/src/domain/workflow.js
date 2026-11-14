@@ -85,8 +85,13 @@ export function isDocRequired(type, nurse) {
 }
 export const requiredDocTypes = nurse => Object.keys(DOC_TYPES).filter(k => isDocRequired(k, nurse));
 
-// Bank / payment details are collected once the nurse is verified.
-export const PAYOUT_STATUSES = ['VERIFIED'];
+// Bank / payment details are collected right after the nurse's details, before the documents
+// (submitted once; a ₹1 test deposit confirms the account). Nurses who registered before this
+// order are asked at their next visit.
+export const PAYOUT_STATUSES = ['REGISTERED', 'CORRECTION_REQUIRED', 'SUBMITTED', 'VERIFIED'];
+// Tamil Nadu pincodes run from 600001 to 643xxx (6 digits, starting 60–64).
+export const PINCODE_RE = /^6[0-4]\d{4}$/;
+export const PINCODE_MSG = 'Enter a valid Tamil Nadu pincode (6 digits, starting with 60 to 64)';
 
 // Uyir's social pages. After submitting their documents, nurses are asked to follow all of them
 // (open each page, then confirm) before they continue.
@@ -132,9 +137,9 @@ export function normalizeMobile(raw) {
 
 // Registration-form fields: filled in by the nurse through their link; staff can correct them too.
 // (Bank details are not here: only the nurse enters those.)
-export const REG_FIELDS = ['email', 'address', 'taluk', 'block', 'qualification', 'council_reg_no', 'current_employment', 'experience_years', 'work_preference', 'preferred_locations', 'service_interests'];
+export const REG_FIELDS = ['email', 'address', 'pincode', 'taluk', 'block', 'qualification', 'council_reg_no', 'current_employment', 'experience_years', 'work_preference', 'preferred_locations', 'service_interests'];
 export const REG_FIELD_LABELS = {
-  email: 'Email', address: 'Address', taluk: 'Taluk', block: 'Block', qualification: 'Qualification', council_reg_no: 'Council reg. no.',
+  email: 'Email', address: 'Address', pincode: 'Pincode', taluk: 'Taluk', block: 'Block', qualification: 'Qualification', council_reg_no: 'Council reg. no.',
   current_employment: 'Current employment', experience_years: 'Experience (yrs)', work_preference: 'Work preference',
   preferred_locations: 'Preferred locations', service_interests: 'Service interests',
 };
@@ -143,5 +148,6 @@ export function cleanRegField(k, raw) {
   const v = raw == null ? null : String(raw).trim().slice(0, 1000) || null;
   if (k === 'experience_years') return v == null ? null : Math.max(0, Math.min(60, Number(v) || 0));
   if (k === 'email' && v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) throw new Error('Invalid email address');
+  if (k === 'pincode' && v && !PINCODE_RE.test(v)) throw new Error(PINCODE_MSG);
   return v;
 }

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useToast } from '../components/Toast.jsx';
 
-// Bank / payment details (only after verification).
+// Bank / payment details: step 2, after the nurse's details and before the documents. Submitted once.
 export function PayoutStep({ reg, d, refresh }) {
   const p = d.payout;
   const toast = useToast();
@@ -12,10 +12,15 @@ export function PayoutStep({ reg, d, refresh }) {
 
   return (
     <>
-      <div className="step">Step 3 of 3 · Bank details</div>
+      <div className="step">Step 2 of 4 · Bank details</div>
       <h1>Where should we pay you?</h1>
-      <p className="muted small">Your documents are verified. Add the bank account where you want to receive payments for services.
+      <p className="muted small">Add the bank account where you want to receive payments for your services.
         Your account number is stored encrypted, and our staff see only the last 4 digits.</p>
+      <div className="banner info small">
+        <b>Account verification:</b> to confirm that these bank details are correct, Uyir will deposit <b>₹1</b> into
+        this account. No action is needed from you, and you do not need to return the amount. Please make sure the
+        account is active and in your own name.
+      </div>
       <form onSubmit={e => { e.preventDefault(); save.mutate(); }}>
         <label className="f"><span>Account holder name *</span><input value={f.account_holder} onChange={set('account_holder')} required autoComplete="name" /></label>
         <label className="f"><span>Account number * <span className="muted small">(any bank, as on your passbook)</span></span>

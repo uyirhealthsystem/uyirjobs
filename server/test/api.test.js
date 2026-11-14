@@ -99,8 +99,9 @@ const uploadDoc = async (t, type, buf, filename = 'x.pdf', mime = 'application/p
   return { status: res.status, body: await res.json() };
 };
 const tokenOf = async (staff, id) => new URL((await staff('/api/nurses/' + id)).body.nurse.registration_url).searchParams.get('t');
-const DETAILS = { consent: true, address: 'x', email: 'nurse@example.com', taluk: 'y', preferred_locations: 'Tenkasi, Tenkasi (Tenkasi)', qualification: 'GNM Diploma',
+const DETAILS = { consent: true, address: 'x', pincode: '627811', email: 'nurse@example.com', taluk: 'y', preferred_locations: 'Tenkasi, Tenkasi (Tenkasi)', qualification: 'GNM Diploma',
   council_reg_no: 'TN1', current_employment: 'Not working', experience_years: 0, work_preference: 'Part-time', service_interests: 'Home nursing' };
+const BANK = { account_holder: 'Test Nurse', account_number: '123456789', account_number_confirm: '123456789', ifsc: 'SBIN0001234' };
 
 test('full flow: add & invite → nurse registers → documents → review → verified → bank details', async () => {
   const admin = await login('tenkasi.admin', 'Tenkasi@123');
@@ -118,7 +119,10 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.equal((await pub(`${t}/otp`, {})).status, 404, 'OTP endpoint removed');
   assert.equal((await pub(`${t}/form`)).body.nurse.status, 'INVITED');
   assert.equal((await pub(`${t}/details`, { ...DETAILS, consent: false })).status, 400, 'consent required');
-  for (const k of ['name', 'email', 'preferred_locations', 'current_employment', 'experience_years', 'service_interests']) {
+  for (const pincode of ['12345', '560001', '6278110', 'abcdef']) {
+    assert.equal((await pub(`${t}/details`, { ...DETAILS, pincode })).status, 400, `pincode ${pincode} refused (Tamil Nadu, 6 digits)`);
+  }
+  for (const k of ['name', 'email', 'pincode', 'preferred_locations', 'current_employment', 'experience_years', 'service_interests']) {
     assert.equal((await pub(`${t}/details`, { ...DETAILS, [k]: '' })).status, 400, `${k} required`);
   }
   assert.equal((await pub(`${t}/details`, { ...DETAILS, preferred_locations: 'Melur, Melur (Madurai); Tenkasi, Tenkasi (Tenkasi)' })).status, 400, 'only one work location');
@@ -133,11 +137,32 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.equal((await pub(`${t}/villages?district=Madurai&taluk=Nowhere`)).status, 404);
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'SUBMITTED' })).status, 409, 'staff cannot submit for the nurse');
 
+  // Step 2: bank details, before the documents. Submitted once.
+  assert.equal((await pub(`${t}/form`)).body.payout.needed, true, 'bank details asked right after the details');
+  const bank = { account_holder: 'Kavya T', account_number: '123456789012', account_number_confirm: '123456789012', ifsc: 'sbin0001234' };
+  assert.equal((await pub(`${t}/payout`, { ...bank, account_number_confirm: '1' })).status, 400, 'account numbers must match');
+  assert.equal((await pub(`${t}/payout`, { ...bank, ifsc: 'BAD' })).status, 400, 'IFSC validated');
+  // Every bank's format: short co-operative numbers, letters, spaces and hyphens.
+  assert.equal((await pub(`${t}/payout`, { ...bank, account_number: '12345', account_number_confirm: '12345' })).status, 400, 'too short');
+  for (const [raw, clean] of [['1234567', '1234567'], ['sb-0012 345a', 'SB0012345A'], ['1234 5678-9012', '123456789012']]) {
+    assert.equal(cleanAccountNumber(raw), clean);
+    assert.ok(ACCOUNT_RE.test(clean), `${raw} accepted`);
+  }
+
+  // Step 3: documents. They cannot be submitted before the bank details.
   const pdf = readFileSync(join(DATA_DIR, 'uploads', 'demo-sample.pdf'));
   assert.equal((await pub(`${t}/submit-docs`, {})).status, 400, 'cannot submit with missing docs');
   assert.equal((await uploadDoc(t, 'GOVT_ID', Buffer.from('not a pdf'))).status, 400, 'content sniffed');
   for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) assert.equal((await uploadDoc(t, type, pdf)).status, 200);
-  assert.equal((await pub(`${t}/payout`, { account_holder: 'x' })).status, 409, 'bank details only after verification');
+  const noBank = await pub(`${t}/submit-docs`, {});
+  assert.equal(noBank.status, 409, 'bank details come before submitting documents');
+  assert.match(noBank.body.error, /bank details first/);
+  // Spaces and hyphens are ignored (saved as 123456789012).
+  assert.equal((await pub(`${t}/payout`, { ...bank, account_number: '1234 5678-9012' })).status, 200);
+  // Submitted once: no changes afterwards.
+  const again = await pub(`${t}/payout`, { ...bank, account_number: '999999999', account_number_confirm: '999999999' });
+  assert.equal(again.status, 409, 'bank details cannot be changed after submission');
+  assert.match(again.body.error, /cannot be changed/);
   assert.equal((await pub(`${t}/social/confirm`, {})).status, 409, 'follow step comes after submitting documents');
   assert.equal((await pub(`${t}/submit-docs`, {})).status, 200);
 
@@ -164,22 +189,6 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'REJECTED' })).status, 400, 'reason required');
   for (const d of (await admin('/api/nurses/' + id)).body.documents) await admin(`/api/nurses/${id}/documents/${d.id}/review`, { status: 'VERIFIED' });
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'VERIFIED' })).status, 200);
-
-  const bank = { account_holder: 'Kavya T', account_number: '123456789012', account_number_confirm: '123456789012', ifsc: 'sbin0001234' };
-  assert.equal((await pub(`${t}/payout`, { ...bank, account_number_confirm: '1' })).status, 400, 'account numbers must match');
-  assert.equal((await pub(`${t}/payout`, { ...bank, ifsc: 'BAD' })).status, 400, 'IFSC validated');
-  // Every bank's format: short co-operative numbers, letters, spaces and hyphens.
-  assert.equal((await pub(`${t}/payout`, { ...bank, account_number: '12345', account_number_confirm: '12345' })).status, 400, 'too short');
-  for (const [raw, clean] of [['1234567', '1234567'], ['sb-0012 345a', 'SB0012345A'], ['1234 5678-9012', '123456789012']]) {
-    assert.equal(cleanAccountNumber(raw), clean);
-    assert.ok(ACCOUNT_RE.test(clean), `${raw} accepted`);
-  }
-  // Spaces and hyphens are ignored (saved as 123456789012).
-  assert.equal((await pub(`${t}/payout`, { ...bank, account_number: '1234 5678-9012' })).status, 200);
-  // Submitted once: no changes afterwards.
-  const again = await pub(`${t}/payout`, { ...bank, account_number: '999999999', account_number_confirm: '999999999' });
-  assert.equal(again.status, 409, 'bank details cannot be changed after submission');
-  assert.match(again.body.error, /cannot be changed/);
 
   n = (await admin('/api/nurses/' + id)).body;
   assert.equal(n.nurse.status, 'VERIFIED');
@@ -333,8 +342,9 @@ test('WhatsApp: correction reaches the nurse; delivery status comes back by webh
   const t = await tokenOf(admin, id);
   await pub(`${t}/details`, { ...DETAILS, consent_whatsapp: true });
   const pdf = readFileSync(join(DATA_DIR, 'uploads', 'demo-sample.pdf'));
+  await pub(`${t}/payout`, BANK);
   for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) await uploadDoc(t, type, pdf);
-  await pub(`${t}/submit-docs`, {});
+  assert.equal((await pub(`${t}/submit-docs`, {})).status, 200);
   const doc = (await admin('/api/nurses/' + id)).body.documents.find(d => d.type === 'COUNCIL_REG');
   await admin(`/api/nurses/${id}/documents/${doc.id}/review`, { status: 'CORRECTION', note: 'Certificate is blurred' });
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'CORRECTION_REQUIRED', note: 'Council certificate is blurred' })).status, 200);

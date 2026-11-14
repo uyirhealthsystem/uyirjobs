@@ -60,7 +60,7 @@ nursesRouter.get('/', async (req, res) => {
 });
 
 // Everything collected about each nurse, except the bank account number (only its last 4 digits).
-const EXPORT_COLS = ['id', 'name', 'mobile', 'district', 'status', 'email', 'address', 'taluk', 'block', 'qualification', 'council_reg_no',
+const EXPORT_COLS = ['id', 'name', 'mobile', 'district', 'status', 'email', 'address', 'pincode', 'taluk', 'block', 'qualification', 'council_reg_no',
   'current_employment', 'experience_years', 'work_preference', 'preferred_locations', 'service_interests', 'registered_at',
   'payout_account_holder', 'payout_account_last4', 'payout_ifsc', 'payout_upi', 'dnc', 'source', 'updated_at'];
 

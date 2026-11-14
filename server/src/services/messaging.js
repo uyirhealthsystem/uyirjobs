@@ -20,7 +20,10 @@ export const TEMPLATES = {
   DOC_REMIND: n => `Reminder: please upload your nursing certificate, council registration and ID to complete your Uyir registration: ${regLink(n)}`,
   CORRECTION: n => `Uyir: some of your documents need correction (${n.review_note || 'see the link'}). Please re-upload: ${regLink(n)}`,
   REJECTED:   n => `Uyir: we are unable to approve your registration at this time. Reason: ${n.review_note || 'not specified'}.`,
-  VERIFIED:   n => `Congratulations ${firstName(n)}! Your documents are verified. Please add your bank details for payments: ${regLink(n)}`,
+  // Bank details now come before the documents; older registrations may still need to add them.
+  VERIFIED:   n => n.payout_added_at
+    ? `Congratulations ${firstName(n)}! Your documents are verified and your Uyir registration is complete. Our team will contact you about nursing work near you.`
+    : `Congratulations ${firstName(n)}! Your documents are verified. Please add your bank details for payments: ${regLink(n)}`,
   NOT_FOUND:  () => `Vanakkam! Uyir registration needs an Indian mobile number. Please message us from your Indian WhatsApp number, or contact your district office.`,
 };
 const SMS_TEMPLATES = new Set(['INVITE', 'INVITE_AGAIN']);

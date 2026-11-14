@@ -153,7 +153,7 @@ export function DocumentsPanel({ d }) {
 
 // Registration-form fields; staff can correct them (bank details stay nurse-only). Every edit is in the history.
 const EDIT_FIELDS = [
-  ['email', 'Email'], ['address', 'Address'], ['taluk', 'Taluk'], ['block', 'Block'], ['qualification', 'Qualification'],
+  ['email', 'Email'], ['address', 'Address'], ['pincode', 'Pincode'], ['taluk', 'Taluk'], ['block', 'Block'], ['qualification', 'Qualification'],
   ['council_reg_no', 'Council reg. no.'], ['current_employment', 'Current employment'], ['experience_years', 'Experience (yrs)'],
   ['work_preference', 'Work preference'], ['preferred_locations', 'Preferred locations'], ['service_interests', 'Service interests'],
 ];
@@ -163,12 +163,12 @@ export function RegistrationPanel({ n }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(() => Object.fromEntries(EDIT_FIELDS.map(([k]) => [k, n[k] ?? ''])));
   const act = useNurseAction(n.id, { onSuccess: () => { setEditing(false); toast('Saved'); } });
-  const reg = [['Email', n.email], ['Address', n.address], ['Taluk / Block', [n.taluk, n.block].filter(Boolean).join(' / ')], ['Qualification', n.qualification],
+  const reg = [['Email', n.email], ['Address', n.address], ['Pincode', n.pincode], ['Taluk / Block', [n.taluk, n.block].filter(Boolean).join(' / ')], ['Qualification', n.qualification],
     ['Council reg. no.', n.council_reg_no], ['Current employment', n.current_employment], ['Experience (yrs)', n.experience_years], ['Work preference', n.work_preference],
     ['Preferred locations', n.preferred_locations], ['Service interests', n.service_interests], ['Mobile verified', when(n.mobile_verified_at)], ['Registered', when(n.registered_at)],
     ['Bank details', n.payout_added_at
       ? `${n.payout_account_holder} · a/c ••••${n.payout_account_last4} · ${n.payout_ifsc}${n.payout_upi ? ' · UPI ' + n.payout_upi : ''}`
-      : n.status === 'VERIFIED' ? 'Pending — nurse adds these through their link' : '—'],
+      : n.registered_at ? 'Pending — nurse adds these through their link' : '—'],
     ['Follows Uyir (Instagram, Facebook, YouTube)', n.social_followed_at
       ? `Confirmed ${when(n.social_followed_at)}`
       : n.social_opened?.length ? `Opened: ${n.social_opened.join(', ')} (not confirmed yet)` : '—']];

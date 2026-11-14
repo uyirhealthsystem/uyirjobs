@@ -172,6 +172,8 @@ CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_id);
 -- confirmed following all of them (the networks cannot tell us whether they really followed).
 ALTER TABLE nurses ADD COLUMN IF NOT EXISTS social_opened text[] NOT NULL DEFAULT '{}';
 ALTER TABLE nurses ADD COLUMN IF NOT EXISTS social_followed_at timestamptz;
+-- Pincode, asked on the registration form.
+ALTER TABLE nurses ADD COLUMN IF NOT EXISTS pincode text;
 `;
 
 // The app only collects nurse information (no CRM). Upgrade data from the CRM version in place:

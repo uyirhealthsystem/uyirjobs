@@ -1,6 +1,6 @@
 // Nurse registration portal (https://uyirjobs.in/register?t=…), mobile-first. The personal link
-// (sent by SMS from staff) opens directly, with no OTP:
-// welcome (who we are) → 1 details & consent → 2 documents → staff review → 3 bank details.
+// (sent on WhatsApp) opens directly, with no OTP:
+// welcome (who we are) → 1 details & consent → 2 bank details → 3 documents → 4 follow Uyir → staff review.
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -42,11 +42,11 @@ export default function RegisterApp() {
     const d = form.data, n = d.nurse;
     if (n.status === 'INVITED' && !started) body = <WelcomeStep info={info.data} onStart={() => { setStarted(true); window.scrollTo(0, 0); }} />;
     else if (n.status === 'INVITED' || editing) body = <DetailsStep {...ctx} d={d} onDone={() => setEditing(false)} />;
-    else if (['REGISTERED', 'CORRECTION_REQUIRED'].includes(n.status)) body = <DocumentsStep {...ctx} d={d} onEdit={() => setEditing(true)} />;
-    // After submitting documents, the nurse follows Uyir's social pages before anything else.
-    else if (d.social?.needed) body = <FollowStep {...ctx} d={d} />;
-    // Bank details are asked once; after that they cannot be changed here.
+    // Order: 1 details → 2 bank details (asked once, cannot be changed afterwards) → 3 documents →
+    // 4 follow Uyir's social pages → done. Older registrations without bank details are asked now.
     else if (d.payout.needed && !d.payout.on_file) body = <PayoutStep {...ctx} d={d} />;
+    else if (['REGISTERED', 'CORRECTION_REQUIRED'].includes(n.status)) body = <DocumentsStep {...ctx} d={d} onEdit={() => setEditing(true)} />;
+    else if (d.social?.needed) body = <FollowStep {...ctx} d={d} />;
     else body = <DoneStep d={d} />;
   }
 

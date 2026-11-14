@@ -12,7 +12,7 @@ import { logEvent } from './events.js';
 import { purgeNurseFiles } from './storage.js';
 
 const ERASE_COLUMNS = [
-  'email', 'address', 'taluk', 'block', 'qualification', 'council_reg_no', 'current_employment', 'experience_years',
+  'email', 'address', 'pincode', 'taluk', 'block', 'qualification', 'council_reg_no', 'current_employment', 'experience_years',
   'work_preference', 'preferred_locations', 'service_interests',
   'payout_account_holder', 'payout_account_enc', 'payout_account_last4', 'payout_ifsc', 'payout_upi', 'payout_added_at',
   'reg_token', 'reg_session', 'reg_session_expires', 'otp_hash', 'otp_expires', 'mobile_verified_at',

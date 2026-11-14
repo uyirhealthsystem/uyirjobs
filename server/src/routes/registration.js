@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { q, one, tx } from '../db/pool.js';
 import { httpError } from '../lib/errors.js';
 import { encryptField } from '../lib/crypto.js';
-import { STATUSES, DOC_TYPES, DISTRICTS, PAYOUT_STATUSES, SOCIAL, SOCIAL_STATUSES, IFSC_RE, ACCOUNT_RE, cleanAccountNumber, requiredDocTypes, normalizeDistrict, REG_FIELDS } from '../domain/workflow.js';
+import { STATUSES, DOC_TYPES, DISTRICTS, PAYOUT_STATUSES, PINCODE_RE, PINCODE_MSG, SOCIAL, SOCIAL_STATUSES, IFSC_RE, ACCOUNT_RE, cleanAccountNumber, requiredDocTypes, normalizeDistrict, REG_FIELDS } from '../domain/workflow.js';
 import { logEvent } from '../services/events.js';
 import { transition, missingRequiredDocs } from '../services/nurses.js';
 import { storage, documentKey } from '../services/storage.js';
@@ -94,6 +94,8 @@ registrationRouter.post('/:t/details', withNurse, async (req, res) => {
   const name = String(body.name ?? '').trim().slice(0, 200);
   if (!name) throw httpError(400, 'Please fill in your name');
   if (!f.address) throw httpError(400, 'Please fill in your address');
+  if (!f.pincode) throw httpError(400, 'Please fill in your pincode');
+  if (!PINCODE_RE.test(f.pincode)) throw httpError(400, PINCODE_MSG);
   if (!f.email) throw httpError(400, 'Please fill in your email');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) throw httpError(400, 'Invalid email address');
   // District: chosen by the nurse (a change moves the record to that district's admins).
@@ -162,6 +164,7 @@ registrationRouter.post('/:t/submit-docs', withNurse, async (req, res) => {
   const missing = await missingRequiredDocs(n.id, n);
   if (missing.length) throw httpError(400, `Still missing: ${missing.map(m => DOC_TYPES[m].label).join(', ')}`);
   if (!DOCS_OPEN.includes(n.status)) throw httpError(409, 'Nothing to submit');
+  if (!n.payout_added_at) throw httpError(409, 'Please add your bank details first');
   await transition(n.id, 'SUBMITTED', { role: 'system', actor: 'nurse' }, n.status === 'CORRECTION_REQUIRED' ? 'Corrected documents submitted' : 'Documents submitted');
   res.json({ ok: true });
 });
@@ -188,12 +191,12 @@ registrationRouter.post('/:t/social/confirm', withNurse, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Bank / payment details, collected once the nurse is verified. The account number is encrypted at rest.
-// Submitted once: after that they cannot be changed through the portal.
+// Bank / payment details, collected after the nurse's details and before the documents. The account
+// number is encrypted at rest. Submitted once: after that they cannot be changed through the portal.
 const PAYOUT_LOCKED = 'Your bank details are already submitted and cannot be changed. Please contact the Uyir team if they are wrong.';
 registrationRouter.post('/:t/payout', withNurse, async (req, res) => {
   const n = req.nurse, body = req.body || {};
-  if (!PAYOUT_STATUSES.includes(n.status)) throw httpError(409, 'Payment details are collected after your documents are verified');
+  if (!PAYOUT_STATUSES.includes(n.status)) throw httpError(409, 'Please fill in your details first');
   if (n.payout_added_at) throw httpError(409, PAYOUT_LOCKED);
   const holder = String(body.account_holder || '').trim().slice(0, 120);
   const acct = cleanAccountNumber(body.account_number);
