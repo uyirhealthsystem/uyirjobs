@@ -67,6 +67,9 @@ tr.click { cursor: pointer; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
 .chips .pill { font-size: 13px; padding: 4px 10px; }
 .chips .pill .linkbtn { margin-left: 4px; }
+.locpick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.locpick select { min-width: 0; width: 100%; }
+.locpick select[aria-label$="village"] { grid-column: 1 / -1; }
 .pill.g-invite { background: var(--info-soft); color: var(--info); }
 .pill.g-registration { background: var(--warn-soft); color: var(--warn); }
 .pill.g-review { background: #f3ebfd; color: #6b21a8; }

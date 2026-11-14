@@ -26,7 +26,7 @@ export const TALUKS = {
     'Pudukkottai', 'Thirumayam', 'Viralimalai'],
   Ramanathapuram: ['Kadaladi', 'Kamuthi', 'Keelakarai', 'Mudukulathur', 'Paramakudi', 'Rajasingamangalam', 'Ramanathapuram', 'Rameswaram', 'Tiruvadanai'],
   Ranipet: ['Arakkonam', 'Arcot', 'Kalavai', 'Nemili', 'Sholinghur', 'Walajapet'],
-  Salem: ['Attur', 'Edappadi', 'Gangavalli', 'Kadayampatti', 'Mettur', 'Omalur', 'Pethanaickenpalayam', 'Salem', 'Salem South', 'Salem West', 'Sankagiri', 'Vazhapadi', 'Yercaud'],
+  Salem: ['Attur', 'Edappadi', 'Gangavalli', 'Kadayampatti', 'Mettur', 'Omalur', 'Pethanaickenpalayam', 'Salem', 'Salem South', 'Salem West', 'Sankagiri', 'Thalaivasal', 'Vazhapadi', 'Yercaud'],
   Sivaganga: ['Devakottai', 'Ilayangudi', 'Kalaiyarkoil', 'Karaikudi', 'Manamadurai', 'Singampunari', 'Sivaganga', 'Tiruppattur', 'Tiruppuvanam'],
   Tenkasi: ['Alangulam', 'Kadayanallur', 'Sankarankovil', 'Shenkottai', 'Sivagiri', 'Tenkasi', 'Thiruvengadam', 'Veerakeralampudur'],
   Thanjavur: ['Budalur', 'Kumbakonam', 'Orathanadu', 'Papanasam', 'Pattukkottai', 'Peravurani', 'Thanjavur', 'Thiruvaiyaru', 'Thiruvidaimarudur'],

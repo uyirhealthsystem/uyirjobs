@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useToast } from '../components/Toast.jsx';
 
-const QUALIFICATIONS = ['ANM', 'GNM Diploma', 'B.Sc Nursing', 'Post Basic B.Sc Nursing', 'M.Sc Nursing', 'Other'];
+const QUALIFICATIONS = ['ANM', 'GNM Diploma', 'B.Sc Nursing', 'Post Basic B.Sc Nursing', 'M.Sc Nursing'];
 const WORK = ['Full-time', 'Part-time', 'Either'];
+const EMPLOYMENT = ['Government hospital', 'Private hospital', 'Clinic / nursing home', 'Home care / self-employed', 'Not working currently'];
 const SERVICES = ['Home nursing', 'Elderly care', 'Post-operative care', 'Palliative care', 'Mother & baby care', 'Injections & IV', 'Wound care', 'Physiotherapy assistance'];
 // Block is not asked here (staff can still fill it in); the server keeps what is on file.
 const FIELDS = ['address', 'email', 'taluk', 'qualification', 'council_reg_no', 'current_employment', 'experience_years', 'work_preference'];
 const OTHER = '__other__';
 const MAX_LOCATIONS = 5;
-// Preferred work locations are stored as "Taluk (District); Taluk (District)".
+// Preferred work locations are stored as "Village, Taluk (District); Village, Taluk (District)".
 const parseLocations = s => String(s || '').split(';').map(x => x.trim()).filter(Boolean);
 
 export function DetailsStep({ reg, d, refresh, onDone }) {
@@ -19,6 +20,7 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
   const [f, setF] = useState(() => ({
     ...Object.fromEntries(FIELDS.map(k => [k, n[k] ?? ''])),
     name: n.name === 'Nurse' ? '' : n.name,
+    qualification: n.qualification === 'Other' ? '' : n.qualification ?? '',
     district: n.district || '',
     locations: parseLocations(n.preferred_locations),
     services: new Set(String(n.service_interests || '').split(',').map(s => s.trim()).filter(Boolean)),
@@ -28,7 +30,16 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
   const districtTaluks = taluks[f.district] || [];
   // A saved taluk that is not in the list was typed in under "Other".
   const [talukOther, setTalukOther] = useState(() => !!n.taluk && !(taluks[n.district] || []).includes(n.taluk));
-  const [loc, setLoc] = useState({ district: n.district || '', taluk: '' });
+  // Likewise for employment and qualification answers typed under "Other" (older records saved just "Other").
+  const [employmentOther, setEmploymentOther] = useState(() => !!n.current_employment && !EMPLOYMENT.includes(n.current_employment));
+  const [qualificationOther, setQualificationOther] = useState(() => !!n.qualification && !QUALIFICATIONS.includes(n.qualification));
+  const [loc, setLoc] = useState({ district: n.district || '', taluk: '', village: '' });
+  const villages = useQuery({
+    queryKey: ['villages', loc.district, loc.taluk],
+    queryFn: () => reg.get(`/villages?district=${encodeURIComponent(loc.district)}&taluk=${encodeURIComponent(loc.taluk)}`),
+    enabled: !!(loc.district && loc.taluk),
+    staleTime: Infinity,
+  });
 
   const save = useMutation({
     mutationFn: () => {
@@ -47,7 +58,17 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
     const district = e.target.value;
     setF(x => ({ ...x, district, taluk: '' }));
     setTalukOther(false);
-    setLoc(l => (l.district ? l : { district, taluk: '' }));
+    setLoc(l => (l.district ? l : { district, taluk: '', village: '' }));
+  }
+  function chooseQualification(e) {
+    const v = e.target.value;
+    setQualificationOther(v === OTHER);
+    setF(x => ({ ...x, qualification: v === OTHER ? '' : v }));
+  }
+  function chooseEmployment(e) {
+    const v = e.target.value;
+    setEmploymentOther(v === OTHER);
+    setF(x => ({ ...x, current_employment: v === OTHER ? '' : v }));
   }
   function chooseTaluk(e) {
     const v = e.target.value;
@@ -55,10 +76,10 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
     setF(x => ({ ...x, taluk: v === OTHER ? '' : v }));
   }
   function addLocation() {
-    const label = `${loc.taluk} (${loc.district})`;
-    if (!loc.district || !loc.taluk) return;
+    if (!loc.district || !loc.taluk || !loc.village) return;
+    const label = `${loc.village}, ${loc.taluk} (${loc.district})`;
     setF(x => (x.locations.includes(label) || x.locations.length >= MAX_LOCATIONS ? x : { ...x, locations: [...x.locations, label] }));
-    setLoc(l => ({ ...l, taluk: '' }));
+    setLoc(l => ({ ...l, village: '' }));
   }
   const removeLocation = label => setF(x => ({ ...x, locations: x.locations.filter(l => l !== label) }));
 
@@ -80,13 +101,9 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
         {Text({ k: 'email', label: 'Email', type: 'email', autoComplete: 'email' })}
 
         <label className="f"><span>District *</span>
-          {n.needs_profile ? (
-            <select value={f.district} onChange={chooseDistrict} required>
-              <option value="">Select…</option>{d.districts.map(x => <option key={x}>{x}</option>)}
-            </select>
-          ) : (
-            <input type="text" value={f.district} readOnly title="Set by Uyir staff. Call us if this is wrong." />
-          )}
+          <select value={f.district} onChange={chooseDistrict} required>
+            <option value="">Select…</option>{d.districts.map(x => <option key={x}>{x}</option>)}
+          </select>
         </label>
 
         <label className="f"><span>Taluk *</span>
@@ -108,25 +125,41 @@ export function DetailsStep({ reg, d, refresh, onDone }) {
             </div>
           )}
           {f.locations.length < MAX_LOCATIONS && (
-            <div className="row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <select aria-label="Work location district" value={loc.district} onChange={e => setLoc({ district: e.target.value, taluk: '' })}>
+            <div className="locpick">
+              <select aria-label="Work location district" value={loc.district} onChange={e => setLoc({ district: e.target.value, taluk: '', village: '' })}>
                 <option value="">District…</option>{d.districts.map(x => <option key={x}>{x}</option>)}
               </select>
-              <select aria-label="Work location taluk" value={loc.taluk} onChange={e => setLoc(l => ({ ...l, taluk: e.target.value }))} disabled={!loc.district}>
+              <select aria-label="Work location taluk" value={loc.taluk} onChange={e => setLoc(l => ({ ...l, taluk: e.target.value, village: '' }))} disabled={!loc.district}>
                 <option value="">Taluk…</option>{(taluks[loc.district] || []).map(x => <option key={x}>{x}</option>)}
               </select>
-              <button type="button" className="btn" onClick={addLocation} disabled={!loc.district || !loc.taluk}>Add</button>
+              <select aria-label="Work location village" value={loc.village} onChange={e => setLoc(l => ({ ...l, village: e.target.value }))} disabled={!villages.data}>
+                <option value="">{villages.isFetching ? 'Loading villages…' : 'Village…'}</option>
+                {(villages.data?.villages || []).map(x => <option key={x}>{x}</option>)}
+              </select>
+              <button type="button" className="btn" onClick={addLocation} disabled={!loc.village}>Add</button>
             </div>
+          )}
+          {villages.isError && <p className="small" role="alert">Could not load villages. Check your connection and choose the taluk again.</p>}
+          {f.locations.length < MAX_LOCATIONS && (
+            <p className="small muted">Choose district, taluk and village, then tap Add.</p>
           )}
         </fieldset>
 
         <label className="f"><span>Qualification *</span>
-          <select value={f.qualification} onChange={set('qualification')} required>
+          <select value={qualificationOther ? OTHER : f.qualification} onChange={chooseQualification} required>
             <option value="">Select…</option>{QUALIFICATIONS.map(q => <option key={q}>{q}</option>)}
+            <option value={OTHER}>Other</option>
           </select>
         </label>
+        {qualificationOther && Text({ k: 'qualification', label: 'Your qualification' })}
         {Text({ k: 'council_reg_no', label: 'Nursing Council registration number' })}
-        {Text({ k: 'current_employment', label: 'Current employment (hospital / self-employed / not working)' })}
+        <label className="f"><span>Current employment *</span>
+          <select value={employmentOther ? OTHER : f.current_employment} onChange={chooseEmployment} required>
+            <option value="">Select…</option>{EMPLOYMENT.map(x => <option key={x}>{x}</option>)}
+            <option value={OTHER}>Other</option>
+          </select>
+        </label>
+        {employmentOther && Text({ k: 'current_employment', label: 'Your current employment' })}
         <label className="f"><span>Years of experience * <span className="muted small">(0 if none)</span></span>
           <input type="number" min="0" max="60" step="0.5" inputMode="decimal" value={f.experience_years} onChange={set('experience_years')} required />
         </label>

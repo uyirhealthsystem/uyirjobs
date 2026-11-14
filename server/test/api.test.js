@@ -122,6 +122,13 @@ test('full flow: add & invite → nurse registers → documents → review → v
   }
   assert.equal((await pub(`${t}/details`, DETAILS)).status, 200);
   assert.equal((await admin('/api/nurses/' + id)).body.nurse.status, 'REGISTERED');
+  // District → Taluk → Village choices for the preferred work location.
+  const form = (await pub(`${t}/form`)).body;
+  assert.ok(form.taluks.Madurai.includes('Melur'));
+  const vill = await pub(`${t}/villages?district=Madurai&taluk=Melur`);
+  assert.equal(vill.status, 200);
+  assert.ok(vill.body.villages.length > 50, 'Melur taluk has its revenue villages');
+  assert.equal((await pub(`${t}/villages?district=Madurai&taluk=Nowhere`)).status, 404);
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'SUBMITTED' })).status, 409, 'staff cannot submit for the nurse');
 
   const pdf = readFileSync(join(DATA_DIR, 'uploads', 'demo-sample.pdf'));
@@ -564,6 +571,18 @@ test('staff correct registration answers; each edit is in the history', async ()
   assert.ok(d.events.some(e => /Address: Old street → 12 New Street/.test(e.note || '') && /Experience/.test(e.note)), 'edit recorded');
   const chennai = await login('chennai.admin', 'Chennai@123');
   assert.equal((await chennai('/api/nurses/' + id, { address: 'x' }, 'PATCH')).status, 404, 'other districts cannot edit');
+});
+
+test('nurse changes their district on the form: the record moves to that district', async () => {
+  const admin = await login('tenkasi.admin', 'Tenkasi@123');
+  const { id } = (await admin('/api/nurses', { name: 'Mover', mobile: '9999900193', invite: true })).body;
+  const t = await tokenOf(admin, id);
+  assert.equal((await pub(`${t}/details`, { ...DETAILS, district: 'Nowhere' })).status, 400);
+  assert.equal((await pub(`${t}/details`, { ...DETAILS, district: 'Chennai' })).status, 200);
+  const chennai = await login('chennai.admin', 'Chennai@123');
+  const d = (await chennai('/api/nurses/' + id)).body;
+  assert.equal(d.nurse.district, 'Chennai');
+  assert.ok(d.events.some(e => /district Tenkasi → Chennai/.test(e.note || '')), 'change recorded');
 });
 
 test('Super Admin deletes a nurse: personal data and documents erased, ID and audit kept', async () => {

@@ -15,6 +15,7 @@ import { transition, missingRequiredDocs } from '../services/nurses.js';
 import { storage, documentKey } from '../services/storage.js';
 import { registrationLimiter } from '../middleware/security.js';
 import { TALUKS } from '../domain/taluks.js';
+import VILLAGES from '../domain/villages.json' with { type: 'json' };
 import { compressPdf } from '../services/compress.js';
 
 export const registrationRouter = Router();
@@ -72,6 +73,13 @@ registrationRouter.get('/:t/form', withNurse, async (req, res) => {
   });
 });
 
+// Revenue villages of one taluk, for the preferred work location picker (District → Taluk → Village).
+registrationRouter.get('/:t/villages', withNurse, async (req, res) => {
+  const villages = VILLAGES[String(req.query.district || '')]?.[String(req.query.taluk || '')];
+  if (!villages) throw httpError(404, 'Unknown district or taluk');
+  res.set('Cache-Control', 'private, max-age=86400').json({ villages });
+});
+
 registrationRouter.post('/:t/details', withNurse, async (req, res) => {
   const n = req.nurse, body = req.body || {};
   if (!EDITABLE.includes(n.status)) throw httpError(409, 'Your details are locked while under review');
@@ -84,8 +92,8 @@ registrationRouter.post('/:t/details', withNurse, async (req, res) => {
   if (!f.address) throw httpError(400, 'Please fill in your address');
   if (!f.email) throw httpError(400, 'Please fill in your email');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) throw httpError(400, 'Invalid email address');
-  // District: chosen here only by nurses who started on WhatsApp; otherwise staff set it (and move nurses between districts).
-  const district = needsProfile(n) ? normalizeDistrict(body.district) : n.district;
+  // District: chosen by the nurse (a change moves the record to that district's admins).
+  const district = 'district' in body ? normalizeDistrict(body.district) : n.district;
   if (!district) throw httpError(400, 'Please choose your district');
   for (const [k, label] of [['taluk', 'your taluk'], ['preferred_locations', 'your preferred work location'], ['qualification', 'your qualification'],
     ['council_reg_no', 'your Nursing Council registration number'], ['current_employment', 'your current employment'],
@@ -97,7 +105,8 @@ registrationRouter.post('/:t/details', withNurse, async (req, res) => {
   await tx(async () => {
     if (profile) {
       await q(`UPDATE nurses SET name = ?, district = ? WHERE id = ?`, profile.name, profile.district, n.id);
-      const note = needsProfile(n) ? `Name and district given by the nurse: ${profile.name}, ${profile.district}` : `Name changed by the nurse: ${n.name} → ${profile.name}`;
+      const changes = [name !== n.name && `name ${n.name} → ${name}`, district !== n.district && `district ${n.district} → ${district}`].filter(Boolean).join(', ');
+      const note = needsProfile(n) ? `Name and district given by the nurse: ${profile.name}, ${profile.district}` : `Changed by the nurse: ${changes}`;
       await logEvent(n.id, 'registration', { note, actor: 'nurse' });
     }
     await q(`UPDATE nurses SET ${REG_FIELDS.map(k => `${k} = ?`).join(', ')}, consent_sms = ?, consent_whatsapp = ?,
