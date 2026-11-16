@@ -9,6 +9,7 @@ export function DoneStep({ d }) {
   const [title, text] = DONE[n.status] || [n.status_label, () => ''];
   return (
     <>
+      {n.status === 'SUBMITTED' && <div className="step">Step 3 of 5 · Document verification</div>}
       <div className="muted mono small">{n.id}</div>
       <h1>{title}</h1>
       <p>{text(n)}</p>
