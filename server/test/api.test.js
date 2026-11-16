@@ -261,6 +261,21 @@ test('Super Admin works across districts and manages staff', async () => {
   assert.equal((await sup(`/api/users/${id}`, { district: null }, 'PATCH')).status, 400, 'cannot leave a District Admin without a district');
   const me = (await sup('/api/me')).body.user;
   assert.equal((await sup(`/api/users/${me.id}`, { active: false }, 'PATCH')).status, 400, 'cannot deactivate yourself');
+
+  // Edit name / username; delete.
+  assert.equal((await sup(`/api/users/${id}`, { username: 'tenkasi.admin' }, 'PATCH')).status, 409, 'username taken');
+  assert.equal((await sup(`/api/users/${id}`, { name: 'Erode Admin', username: 'erode.admin' }, 'PATCH')).status, 200);
+  await login('salem.admin', 'Salem@1234', 401);
+  const erode2 = await login('erode.admin', 'Salem@1234');
+  assert.equal((await erode2('/api/me')).body.user.name, 'Erode Admin');
+  assert.equal((await erode2(`/api/users/${id}`, undefined, 'DELETE')).status, 403, 'only the Super Admin deletes');
+  assert.equal((await sup(`/api/users/${me.id}`, undefined, 'DELETE')).status, 400, 'cannot delete yourself');
+  assert.equal((await sup(`/api/users/${id}`, undefined, 'DELETE')).status, 200);
+  assert.equal((await erode2('/api/me')).status, 401, 'deleted user is signed out');
+  await login('erode.admin', 'Salem@1234', 401);
+  assert.ok(!(await sup('/api/users')).body.rows.some(u => u.id === id), 'hidden from the list');
+  assert.equal((await sup(`/api/users/${id}`, { name: 'X' }, 'PATCH')).status, 404);
+  assert.equal((await sup('/api/users', { username: 'erode.admin', name: 'Again', role: 'district_admin', district: 'Erode', password: 'Erode@1234' })).status, 200, 'username is free again');
 });
 
 test('old CRM data is upgraded on startup', async () => {

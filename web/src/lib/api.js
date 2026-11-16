@@ -32,6 +32,7 @@ export const api = {
   get: (path, opts) => request(path, opts),
   post: (path, body, opts) => request(path, { ...opts, method: 'POST', body: body ?? {} }),
   patch: (path, body, opts) => request(path, { ...opts, method: 'PATCH', body: body ?? {} }),
+  del: (path, opts) => request(path, { ...opts, method: 'DELETE' }),
 };
 
 /** Nurse portal API: the personal link token in the path identifies the nurse. */

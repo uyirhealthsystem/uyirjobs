@@ -8,20 +8,30 @@ import { useAuth } from '../auth.jsx';
 const EMPTY = { name: '', username: '', role: 'district_admin', district: '', password: '' };
 
 export function UsersPage() {
-  const { meta } = useAuth();
+  const { meta, user: me } = useAuth();
   const toast = useToast();
   const qc = useQueryClient();
   const users = useQuery({ queryKey: ['users'], queryFn: () => api.get('/api/users') });
   const [form, setForm] = useState(EMPTY);
-  const [reset, setReset] = useState(null);   // user row whose password is being reset
+  const [reset, setReset] = useState(null);       // user row whose password is being reset
+  const [editing, setEditing] = useState(null);   // user row being edited
+  const [deleting, setDeleting] = useState(null); // user row awaiting delete confirmation
 
+  const closeAll = () => { setReset(null); setEditing(null); setDeleting(null); };
+  const open = (setter, u) => { closeAll(); setter(u); };
   const done = msg => () => { toast(msg); qc.invalidateQueries({ queryKey: ['users'] }); };
   const create = useMutation({ mutationFn: body => api.post('/api/users', body), onSuccess: () => { setForm(EMPTY); done('Account created')(); }, onError: e => toast(e.message, true) });
   const update = useMutation({
     mutationFn: ({ id, body }) => api.patch('/api/users/' + id, body),
-    onSuccess: (r, { msg }) => { setReset(null); done(msg)(); },
+    onSuccess: (r, { msg }) => { closeAll(); done(msg)(); },
     onError: e => toast(e.message, true),
   });
+  const remove = useMutation({
+    mutationFn: id => api.del('/api/users/' + id),
+    onSuccess: () => { closeAll(); done('Account deleted')(); },
+    onError: e => toast(e.message, true),
+  });
+  const busy = update.isPending || remove.isPending;
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
   const roleOpts = Object.entries(meta.roles).map(([k, r]) => <option key={k} value={k}>{r.label}</option>);
   const distOpts = [<option key="" value="">— none (Super Admin) —</option>, ...meta.districts.map(x => <option key={x}>{x}</option>)];
@@ -52,34 +62,59 @@ export function UsersPage() {
           <div className="tablewrap"><table>
             <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>District</th><th>Status</th><th /></tr></thead>
             <tbody>
-              {users.data.rows.map(u => <UserRow key={`${u.id}-${u.role}-${u.district}-${u.active}`} u={u} roleOpts={roleOpts} distOpts={distOpts}
-                busy={update.isPending} onUpdate={(body, msg) => update.mutate({ id: u.id, body, msg })} onReset={() => setReset(u)} />)}
+              {users.data.rows.map(u => (
+                <tr key={u.id}>
+                  <td>{u.name}</td>
+                  <td className="mono">{u.username}</td>
+                  <td>{meta.roles[u.role]?.label || u.role}</td>
+                  <td>{u.district || '—'}</td>
+                  <td>{u.active ? <span className="pill g-done">active</span> : <span className="pill">inactive</span>}</td>
+                  <td className="actions">
+                    <button className="btn sm" onClick={() => open(setEditing, u)}>Edit</button>
+                    {u.id !== me.id && <button className="btn sm" disabled={busy} onClick={() => update.mutate({ id: u.id, body: { active: !u.active }, msg: u.active ? 'Account deactivated' : 'Account activated' })}>{u.active ? 'Deactivate' : 'Activate'}</button>}
+                    <button className="btn sm" onClick={() => open(setReset, u)}>Reset password</button>
+                    {u.id !== me.id && <button className="btn sm danger" onClick={() => open(setDeleting, u)}>Delete</button>}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table></div>
         )}
-        {reset && <ResetPassword u={reset} busy={update.isPending} onCancel={() => setReset(null)}
+        {editing && <EditUser key={editing.id} u={editing} self={editing.id === me.id} roleOpts={roleOpts} distOpts={distOpts} busy={busy} onCancel={closeAll}
+          onSubmit={body => update.mutate({ id: editing.id, body, msg: 'Account updated' })} />}
+        {reset && <ResetPassword u={reset} busy={busy} onCancel={closeAll}
           onSubmit={password => update.mutate({ id: reset.id, body: { password }, msg: 'Password updated' })} />}
+        {deleting && (
+          <div className="inline-form toolbar">
+            <span>Delete <b>{deleting.name}</b> ({deleting.username})? They are signed out and can no longer log in, and their nurses become unassigned. Their past actions stay in the history.</span>
+            <button className="btn danger" disabled={busy} onClick={() => remove.mutate(deleting.id)}>{remove.isPending ? 'Deleting…' : 'Delete account'}</button>
+            <button type="button" className="btn" onClick={closeAll}>Cancel</button>
+          </div>
+        )}
       </div>
     </>
   );
 }
 
-function UserRow({ u, roleOpts, distOpts, busy, onUpdate, onReset }) {
-  const [role, setRole] = useState(u.role);
-  const [district, setDistrict] = useState(u.district || '');
+function EditUser({ u, self, roleOpts, distOpts, busy, onSubmit, onCancel }) {
+  const [f, setF] = useState({ name: u.name, username: u.username, role: u.role, district: u.district || '' });
+  const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
+  const accessChanged = f.role !== u.role || (f.district || null) !== (u.district || null);
   return (
-    <tr>
-      <td>{u.name}</td>
-      <td className="mono">{u.username}</td>
-      <td><select aria-label="Role" value={role} onChange={e => setRole(e.target.value)}>{roleOpts}</select></td>
-      <td><select aria-label="District" value={district} onChange={e => setDistrict(e.target.value)}>{distOpts}</select></td>
-      <td>{u.active ? <span className="pill g-done">active</span> : <span className="pill">inactive</span>}</td>
-      <td className="actions">
-        <button className="btn sm" disabled={busy} onClick={() => onUpdate({ role, district: district || null }, 'Role updated; the user must sign in again')}>Save role</button>
-        <button className="btn sm" disabled={busy} onClick={() => onUpdate({ active: !u.active }, u.active ? 'Account deactivated' : 'Account activated')}>{u.active ? 'Deactivate' : 'Activate'}</button>
-        <button className="btn sm" onClick={onReset}>Reset password</button>
-      </td>
-    </tr>
+    <form className="inline-form" onSubmit={e => { e.preventDefault(); onSubmit({ ...f, district: f.district || null }); }}>
+      <h2>Edit {u.name}</h2>
+      <div className="grid2">
+        <label className="f"><span>Full name</span><input type="text" value={f.name} onChange={set('name')} required autoFocus /></label>
+        <label className="f"><span>Username</span><input type="text" value={f.username} onChange={set('username')} required pattern="[a-zA-Z0-9._\-]{3,32}" /></label>
+        <label className="f"><span>Role</span><select value={f.role} onChange={set('role')} disabled={self}>{roleOpts}</select></label>
+        <label className="f"><span>District (required for District Admin)</span><select value={f.district} onChange={set('district')}>{distOpts}</select></label>
+      </div>
+      {accessChanged && <p className="muted">Changing role or district signs this user out; they must sign in again.</p>}
+      <div className="toolbar">
+        <button className="btn primary" disabled={busy}>Save</button>
+        <button type="button" className="btn" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
   );
 }
 

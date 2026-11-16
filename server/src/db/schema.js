@@ -174,6 +174,8 @@ ALTER TABLE nurses ADD COLUMN IF NOT EXISTS social_opened text[] NOT NULL DEFAUL
 ALTER TABLE nurses ADD COLUMN IF NOT EXISTS social_followed_at timestamptz;
 -- Pincode, asked on the registration form.
 ALTER TABLE nurses ADD COLUMN IF NOT EXISTS pincode text;
+-- Deleted staff accounts (Super Admin): the row stays so the audit trail still shows who did what.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 `;
 
 // The app only collects nurse information (no CRM). Upgrade data from the CRM version in place:
