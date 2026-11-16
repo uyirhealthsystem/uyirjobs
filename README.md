@@ -1,6 +1,6 @@
 # Uyir Nurse Registration
 
-Collects nurse information statewide. Staff call each nurse and send them our WhatsApp chat link by SMS from their own phone; the nurse messages us, gets their personal registration link on WhatsApp, opens it (no OTP), fills in their details, uploads documents and, once verified, adds bank details and follows Uyir on social media. Access is by district: each **District Admin** manages their own district, and the **Super Admin** manages every district plus staff accounts.
+Collects nurse information statewide. Staff call each nurse and send them our WhatsApp chat link by SMS from their own phone; the nurse messages us, gets their personal registration link on WhatsApp, opens it (no OTP), fills in their details, uploads documents and, once verified, adds bank details. Access is by district: each **District Admin** manages their own district, and the **Super Admin** manages every district plus staff accounts.
 
 This is not a CRM: there is no outreach queue, lead assignment or onboarding pipeline. Admins call or SMS a nurse from their own phone and log the call status.
 

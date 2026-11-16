@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useToast } from '../components/Toast.jsx';
 
-// Bank / payment details: the last step, once staff have verified the documents. Submitted once.
+// Bank / payment details: step 2, after the nurse's details and before the documents. Submitted once.
 export function PayoutStep({ reg, d, refresh }) {
   const p = d.payout;
   const toast = useToast();
@@ -12,9 +12,9 @@ export function PayoutStep({ reg, d, refresh }) {
 
   return (
     <>
-      <div className="step">Step 4 of 5 · Bank details</div>
-      <h1>Your bank details</h1>
-      <p className="muted small">Your documents are verified. Please add the bank account where you want to get your payments.
+      <div className="step">Step 2 of 4 · Bank details</div>
+      <h1>Where should we pay you?</h1>
+      <p className="muted small">Add the bank account where you want to receive payments for your services.
         Your account number is stored encrypted, and our staff see only the last 4 digits.</p>
       <div className="banner info small">
         <b>Account verification:</b> to confirm that these bank details are correct, Uyir will deposit <b>₹1</b> into

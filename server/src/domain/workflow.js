@@ -85,21 +85,22 @@ export function isDocRequired(type, nurse) {
 }
 export const requiredDocTypes = nurse => Object.keys(DOC_TYPES).filter(k => isDocRequired(k, nurse));
 
-// Bank / payment details are collected once staff have verified the nurse's documents
-// (submitted once; a ₹1 test deposit confirms the account).
-export const PAYOUT_STATUSES = ['VERIFIED'];
+// Bank / payment details are collected right after the nurse's details, before the documents
+// (submitted once; a ₹1 test deposit confirms the account). Nurses who registered before this
+// order are asked at their next visit.
+export const PAYOUT_STATUSES = ['REGISTERED', 'CORRECTION_REQUIRED', 'SUBMITTED', 'VERIFIED'];
 // Tamil Nadu pincodes run from 600001 to 643xxx (6 digits, starting 60–64).
 export const PINCODE_RE = /^6[0-4]\d{4}$/;
 export const PINCODE_MSG = 'Enter a valid Tamil Nadu pincode (6 digits, starting with 60 to 64)';
 
-// Uyir's social pages. The last step, after the bank details: nurses are asked to follow all of
-// them (open each page, then confirm).
+// Uyir's social pages. After submitting their documents, nurses are asked to follow all of them
+// (open each page, then confirm) before they continue.
 export const SOCIAL = {
   instagram: { label: 'Instagram', action: 'Follow on Instagram', url: 'https://www.instagram.com/dhspvtltd' },
   facebook:  { label: 'Facebook',  action: 'Follow on Facebook',  url: 'https://www.facebook.com/profile.php?id=61595657035796' },
   youtube:   { label: 'YouTube',   action: 'Subscribe on YouTube', url: 'https://www.youtube.com/@UyirHealthApp' },
 };
-export const SOCIAL_STATUSES = ['VERIFIED'];
+export const SOCIAL_STATUSES = ['SUBMITTED', 'VERIFIED'];
 export const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 // Account number formats differ by bank (public, private, co-operative, regional rural, small finance,
 // payments banks): 6–20 letters or digits; spaces and hyphens are ignored.

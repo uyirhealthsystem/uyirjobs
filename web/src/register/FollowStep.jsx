@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useToast } from '../components/Toast.jsx';
 
-// Last step, after the bank details: the nurse opens each of Uyir's social pages and confirms they
+// After documents are submitted: the nurse opens each of Uyir's social pages and confirms they
 // follow them all, then continues. (The networks can't tell us whether they really followed, so
 // we record that each page was opened and the nurse's confirmation.)
 export function FollowStep({ reg, d, refresh }) {
@@ -21,9 +21,9 @@ export function FollowStep({ reg, d, refresh }) {
 
   return (
     <>
-      <div className="step">Step 5 of 5 · Follow Uyir</div>
+      <div className="step">Step 4 of 4 · Follow Uyir</div>
       <h1>Follow us to continue</h1>
-      <p>Thank you for adding your bank details. Follow Uyir on Instagram, Facebook and YouTube: we share nursing work,
+      <p>Thank you for submitting your documents. Follow Uyir on Instagram, Facebook and YouTube: we share nursing work,
         updates and news there. Tap each button, follow us, then come back to this page.</p>
       <div className="social">
         {Object.entries(links).map(([k, s]) => (

@@ -101,6 +101,7 @@ const uploadDoc = async (t, type, buf, filename = 'x.pdf', mime = 'application/p
 const tokenOf = async (staff, id) => new URL((await staff('/api/nurses/' + id)).body.nurse.registration_url).searchParams.get('t');
 const DETAILS = { consent: true, address: 'x', pincode: '627811', email: 'nurse@example.com', taluk: 'y', preferred_locations: 'Tenkasi, Tenkasi (Tenkasi)', qualification: 'GNM Diploma',
   council_reg_no: 'TN1', current_employment: 'Not working', experience_years: 0, work_preference: 'Part-time', service_interests: 'Home nursing' };
+const BANK = { account_holder: 'Test Nurse', account_number: '123456789', account_number_confirm: '123456789', ifsc: 'SBIN0001234' };
 
 test('full flow: add & invite → nurse registers → documents → review → verified → bank details', async () => {
   const admin = await login('tenkasi.admin', 'Tenkasi@123');
@@ -136,27 +137,9 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.equal((await pub(`${t}/villages?district=Madurai&taluk=Nowhere`)).status, 404);
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'SUBMITTED' })).status, 409, 'staff cannot submit for the nurse');
 
-  // Step 2: documents. Bank details are not asked yet (only after the documents are verified).
-  assert.equal((await pub(`${t}/form`)).body.payout.needed, false, 'no bank details before verification');
+  // Step 2: bank details, before the documents. Submitted once.
+  assert.equal((await pub(`${t}/form`)).body.payout.needed, true, 'bank details asked right after the details');
   const bank = { account_holder: 'Kavya T', account_number: '123456789012', account_number_confirm: '123456789012', ifsc: 'sbin0001234' };
-  assert.equal((await pub(`${t}/payout`, bank)).status, 409, 'bank details only after verification');
-  const pdf = readFileSync(join(DATA_DIR, 'uploads', 'demo-sample.pdf'));
-  assert.equal((await pub(`${t}/submit-docs`, {})).status, 400, 'cannot submit with missing docs');
-  assert.equal((await uploadDoc(t, 'GOVT_ID', Buffer.from('not a pdf'))).status, 400, 'content sniffed');
-  for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) assert.equal((await uploadDoc(t, type, pdf)).status, 200);
-  assert.equal((await pub(`${t}/submit-docs`, {})).status, 200);
-  // Step 3: staff verify the documents. Nothing else is asked meanwhile.
-  assert.equal((await pub(`${t}/form`)).body.social.needed, false, 'follow step comes after the bank details');
-  assert.equal((await pub(`${t}/social/confirm`, {})).status, 409, 'follow step comes after the bank details');
-
-  assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'VERIFIED' })).status, 409, 'docs must be reviewed first');
-  assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'REJECTED' })).status, 400, 'reason required');
-  for (const d of (await admin('/api/nurses/' + id)).body.documents) await admin(`/api/nurses/${id}/documents/${d.id}/review`, { status: 'VERIFIED' });
-  assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'VERIFIED' })).status, 200);
-
-  // Step 4: bank details, once the documents are verified. Submitted once.
-  assert.equal((await pub(`${t}/form`)).body.social.needed, false, 'bank details before following');
-  assert.equal((await pub(`${t}/form`)).body.payout.needed, true, 'bank details asked after verification');
   assert.equal((await pub(`${t}/payout`, { ...bank, account_number_confirm: '1' })).status, 400, 'account numbers must match');
   assert.equal((await pub(`${t}/payout`, { ...bank, ifsc: 'BAD' })).status, 400, 'IFSC validated');
   // Every bank's format: short co-operative numbers, letters, spaces and hyphens.
@@ -165,14 +148,25 @@ test('full flow: add & invite → nurse registers → documents → review → v
     assert.equal(cleanAccountNumber(raw), clean);
     assert.ok(ACCOUNT_RE.test(clean), `${raw} accepted`);
   }
+
+  // Step 3: documents. They cannot be submitted before the bank details.
+  const pdf = readFileSync(join(DATA_DIR, 'uploads', 'demo-sample.pdf'));
+  assert.equal((await pub(`${t}/submit-docs`, {})).status, 400, 'cannot submit with missing docs');
+  assert.equal((await uploadDoc(t, 'GOVT_ID', Buffer.from('not a pdf'))).status, 400, 'content sniffed');
+  for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) assert.equal((await uploadDoc(t, type, pdf)).status, 200);
+  const noBank = await pub(`${t}/submit-docs`, {});
+  assert.equal(noBank.status, 409, 'bank details come before submitting documents');
+  assert.match(noBank.body.error, /bank details first/);
   // Spaces and hyphens are ignored (saved as 123456789012).
   assert.equal((await pub(`${t}/payout`, { ...bank, account_number: '1234 5678-9012' })).status, 200);
   // Submitted once: no changes afterwards.
   const again = await pub(`${t}/payout`, { ...bank, account_number: '999999999', account_number_confirm: '999999999' });
   assert.equal(again.status, 409, 'bank details cannot be changed after submission');
   assert.match(again.body.error, /cannot be changed/);
+  assert.equal((await pub(`${t}/social/confirm`, {})).status, 409, 'follow step comes after submitting documents');
+  assert.equal((await pub(`${t}/submit-docs`, {})).status, 200);
 
-  // Step 5: "Follow us", after the bank details. Every page must be opened before confirming; each opening is recorded once.
+  // "Follow us": every page must be opened before confirming; each opening is recorded once.
   let social = (await pub(`${t}/form`)).body.social;
   assert.equal(social.needed, true);
   assert.deepEqual(Object.keys(social.links), ['instagram', 'facebook', 'youtube']);
@@ -190,6 +184,11 @@ test('full flow: add & invite → nurse registers → documents → review → v
   const ev = (await admin('/api/nurses/' + id)).body.events;
   assert.equal(ev.filter(e => /Opened Uyir's Instagram page/.test(e.note || '')).length, 1, 'opening recorded once');
   assert.ok(ev.some(e => /Confirmed following Uyir/.test(e.note || '')));
+
+  assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'VERIFIED' })).status, 409, 'docs must be reviewed first');
+  assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'REJECTED' })).status, 400, 'reason required');
+  for (const d of (await admin('/api/nurses/' + id)).body.documents) await admin(`/api/nurses/${id}/documents/${d.id}/review`, { status: 'VERIFIED' });
+  assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'VERIFIED' })).status, 200);
 
   n = (await admin('/api/nurses/' + id)).body;
   assert.equal(n.nurse.status, 'VERIFIED');
@@ -358,6 +357,7 @@ test('WhatsApp: correction reaches the nurse; delivery status comes back by webh
   const t = await tokenOf(admin, id);
   await pub(`${t}/details`, { ...DETAILS, consent_whatsapp: true });
   const pdf = readFileSync(join(DATA_DIR, 'uploads', 'demo-sample.pdf'));
+  await pub(`${t}/payout`, BANK);
   for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) await uploadDoc(t, type, pdf);
   assert.equal((await pub(`${t}/submit-docs`, {})).status, 200);
   const doc = (await admin('/api/nurses/' + id)).body.documents.find(d => d.type === 'COUNCIL_REG');
