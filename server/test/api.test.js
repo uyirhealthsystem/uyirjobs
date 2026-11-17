@@ -137,9 +137,25 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.equal((await pub(`${t}/villages?district=Madurai&taluk=Nowhere`)).status, 404);
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'SUBMITTED' })).status, 409, 'staff cannot submit for the nurse');
 
-  // Step 2: bank details, before the documents. Submitted once.
-  assert.equal((await pub(`${t}/form`)).body.payout.needed, true, 'bank details asked right after the details');
+  // Step 2: documents. Bank details are not asked before they are submitted.
+  assert.equal((await pub(`${t}/form`)).body.payout.needed, false, 'no bank details before the documents');
   const bank = { account_holder: 'Kavya T', account_number: '123456789012', account_number_confirm: '123456789012', ifsc: 'sbin0001234' };
+  const early = await pub(`${t}/payout`, bank);
+  assert.equal(early.status, 409, 'bank details come after the documents');
+  assert.match(early.body.error, /submit your documents first/);
+  const pdf = readFileSync(join(DATA_DIR, 'uploads', 'demo-sample.pdf'));
+  assert.equal((await pub(`${t}/submit-docs`, {})).status, 400, 'cannot submit with missing docs');
+  assert.equal((await uploadDoc(t, 'GOVT_ID', Buffer.from('not a pdf'))).status, 400, 'content sniffed');
+  for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) assert.equal((await uploadDoc(t, type, pdf)).status, 200);
+  assert.equal((await pub(`${t}/submit-docs`, {})).status, 200, 'documents submitted without bank details');
+
+  // Step 3: bank details, right after the documents. Submitted once. Follow step waits for them.
+  const f3 = (await pub(`${t}/form`)).body;
+  assert.equal(f3.payout.needed, true, 'bank details asked right after the documents');
+  assert.equal(f3.social.needed, false, 'follow step comes after the bank details');
+  const noBank = await pub(`${t}/social/confirm`, {});
+  assert.equal(noBank.status, 409, 'follow step comes after the bank details');
+  assert.match(noBank.body.error, /bank details first/);
   assert.equal((await pub(`${t}/payout`, { ...bank, account_number_confirm: '1' })).status, 400, 'account numbers must match');
   assert.equal((await pub(`${t}/payout`, { ...bank, ifsc: 'BAD' })).status, 400, 'IFSC validated');
   // Every bank's format: short co-operative numbers, letters, spaces and hyphens.
@@ -148,25 +164,14 @@ test('full flow: add & invite → nurse registers → documents → review → v
     assert.equal(cleanAccountNumber(raw), clean);
     assert.ok(ACCOUNT_RE.test(clean), `${raw} accepted`);
   }
-
-  // Step 3: documents. They cannot be submitted before the bank details.
-  const pdf = readFileSync(join(DATA_DIR, 'uploads', 'demo-sample.pdf'));
-  assert.equal((await pub(`${t}/submit-docs`, {})).status, 400, 'cannot submit with missing docs');
-  assert.equal((await uploadDoc(t, 'GOVT_ID', Buffer.from('not a pdf'))).status, 400, 'content sniffed');
-  for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) assert.equal((await uploadDoc(t, type, pdf)).status, 200);
-  const noBank = await pub(`${t}/submit-docs`, {});
-  assert.equal(noBank.status, 409, 'bank details come before submitting documents');
-  assert.match(noBank.body.error, /bank details first/);
   // Spaces and hyphens are ignored (saved as 123456789012).
   assert.equal((await pub(`${t}/payout`, { ...bank, account_number: '1234 5678-9012' })).status, 200);
   // Submitted once: no changes afterwards.
   const again = await pub(`${t}/payout`, { ...bank, account_number: '999999999', account_number_confirm: '999999999' });
   assert.equal(again.status, 409, 'bank details cannot be changed after submission');
   assert.match(again.body.error, /cannot be changed/);
-  assert.equal((await pub(`${t}/social/confirm`, {})).status, 409, 'follow step comes after submitting documents');
-  assert.equal((await pub(`${t}/submit-docs`, {})).status, 200);
 
-  // "Follow us": every page must be opened before confirming; each opening is recorded once.
+  // Step 4: "Follow us": every page must be opened before confirming; each opening is recorded once.
   let social = (await pub(`${t}/form`)).body.social;
   assert.equal(social.needed, true);
   assert.deepEqual(Object.keys(social.links), ['instagram', 'facebook', 'youtube']);
@@ -357,9 +362,9 @@ test('WhatsApp: correction reaches the nurse; delivery status comes back by webh
   const t = await tokenOf(admin, id);
   await pub(`${t}/details`, { ...DETAILS, consent_whatsapp: true });
   const pdf = readFileSync(join(DATA_DIR, 'uploads', 'demo-sample.pdf'));
-  await pub(`${t}/payout`, BANK);
   for (const type of ['QUALIFICATION', 'COUNCIL_REG', 'GOVT_ID']) await uploadDoc(t, type, pdf);
   assert.equal((await pub(`${t}/submit-docs`, {})).status, 200);
+  await pub(`${t}/payout`, BANK);
   const doc = (await admin('/api/nurses/' + id)).body.documents.find(d => d.type === 'COUNCIL_REG');
   await admin(`/api/nurses/${id}/documents/${doc.id}/review`, { status: 'CORRECTION', note: 'Certificate is blurred' });
   assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'CORRECTION_REQUIRED', note: 'Council certificate is blurred' })).status, 200);

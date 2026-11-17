@@ -13,7 +13,7 @@ const ACTION_LABEL = { INVITED: ['Send registration link', 'primary'], VERIFIED:
 const REMINDERS = { REGISTERED: ['DOC_REMIND', 'Send document reminder'], CORRECTION_REQUIRED: ['CORRECTION', 'Resend correction notice'] };
 const WAITING = {
   REGISTERED: 'Waiting for the nurse to upload documents.', CORRECTION_REQUIRED: 'Waiting for the nurse to re-upload corrected documents.',
-  VERIFIED: 'Verified. The nurse can add bank details through their link.', REJECTED: 'Registration rejected.',
+  VERIFIED: 'Verified. Registration complete.', REJECTED: 'Registration rejected.',
 };
 
 /** POST/PATCH to /api/nurses/:id/<path>, then refresh this nurse, the list and the overview. */
@@ -336,8 +336,8 @@ export function ConsentPanel({ n }) {
     <div className="panel">
       <h2>Consent</h2>
       <form onSubmit={e => { e.preventDefault(); act.mutate({ path: '/consent', body: { consent_sms: sms, consent_whatsapp: wa } }); }}>
-        <label><input type="checkbox" checked={sms} onChange={e => setSms(e.target.checked)} /> SMS invite</label><br />
-        <label><input type="checkbox" checked={wa} onChange={e => setWa(e.target.checked)} /> WhatsApp updates <span className="small muted">(set automatically when the nurse messages us)</span></label>
+        <label className="chk"><input type="checkbox" checked={sms} onChange={e => setSms(e.target.checked)} /> SMS invite</label>
+        <label className="chk"><input type="checkbox" checked={wa} onChange={e => setWa(e.target.checked)} /><span>WhatsApp updates <span className="small muted">(set automatically when the nurse messages us)</span></span></label>
         <div className="small muted" style={{ margin: '6px 0' }}>
           Data-processing consent: {n.consent_data_processing_at ? 'given ' + when(n.consent_data_processing_at) : 'not yet (given in the registration form)'}
         </div>

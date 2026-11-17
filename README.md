@@ -1,13 +1,13 @@
 # Uyir Nurse Registration
 
-Collects nurse information statewide. Staff call each nurse and send them our WhatsApp chat link by SMS from their own phone; the nurse messages us, gets their personal registration link on WhatsApp, opens it (no OTP), fills in their details, uploads documents and, once verified, adds bank details. Access is by district: each **District Admin** manages their own district, and the **Super Admin** manages every district plus staff accounts.
+Collects nurse information statewide. Staff call each nurse and send them our WhatsApp chat link by SMS from their own phone; the nurse messages us, gets their personal registration link on WhatsApp, opens it (no OTP), fills in their details, uploads documents, adds bank details and follows Uyir on social media; staff then verify the documents. Access is by district: each **District Admin** manages their own district, and the **Super Admin** manages every district plus staff accounts.
 
 This is not a CRM: there is no outreach queue, lead assignment or onboarding pipeline. Admins call or SMS a nurse from their own phone and log the call status.
 
 ```
 Not Invited ─admin calls, taps "SMS WhatsApp link"→ Invited ─nurse opens link, registers→ Registered (documents pending)
   ─nurse submits→ Submitted ─review→ Verified | Correction Required | Rejected
-Correction Required ─nurse re-uploads→ Submitted        Verified → nurse adds bank details
+Correction Required ─nurse re-uploads→ Submitted        Bank details right after submitting documents
 ```
 
 The registration link is the nurse's only credential (long and random, never shown in full to anyone but staff), so it should not be shared. There is no SMS gateway: messages the app records as "SMS" or "WhatsApp" are logged as `simulated` until a provider is connected; the admin's own SMS is what actually reaches the nurse.
@@ -36,7 +36,7 @@ server/
   test/                   end-to-end API tests (real PostgreSQL, WhatsApp and S3 stand-ins)
 web/src/
   staff/                  sign-in, overview, nurse list, nurse detail, import, staff accounts
-  register/               nurse portal: OTP → details → documents → bank details
+  register/               nurse portal: details → documents → bank details → follow Uyir
 ```
 
 ## Run it locally

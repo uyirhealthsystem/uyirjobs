@@ -3,7 +3,7 @@
 //
 //   New ─invite─▶ Invited ─nurse registers─▶ Registered (documents pending)
 //       ─nurse submits─▶ Submitted ─review─▶ Verified | Correction Required | Rejected
-//   Correction Required ─nurse re-submits─▶ Submitted.   Verified → nurse adds bank details.
+//   Correction Required ─nurse re-submits─▶ Submitted.   Bank details right after submitting documents.
 
 export const STATUSES = {
   NEW:                 { label: 'Not Invited',           stage: 0, group: 'new' },
@@ -85,15 +85,15 @@ export function isDocRequired(type, nurse) {
 }
 export const requiredDocTypes = nurse => Object.keys(DOC_TYPES).filter(k => isDocRequired(k, nurse));
 
-// Bank / payment details are collected right after the nurse's details, before the documents
-// (submitted once; a ₹1 test deposit confirms the account). Nurses who registered before this
-// order are asked at their next visit.
-export const PAYOUT_STATUSES = ['REGISTERED', 'CORRECTION_REQUIRED', 'SUBMITTED', 'VERIFIED'];
+// Bank / payment details are collected right after the documents are submitted, before following
+// Uyir (submitted once; a ₹1 test deposit confirms the account). Nurses who reached a later step
+// without them are asked at their next visit.
+export const PAYOUT_STATUSES = ['SUBMITTED', 'CORRECTION_REQUIRED', 'VERIFIED'];
 // Tamil Nadu pincodes run from 600001 to 643xxx (6 digits, starting 60–64).
 export const PINCODE_RE = /^6[0-4]\d{4}$/;
 export const PINCODE_MSG = 'Enter a valid Tamil Nadu pincode (6 digits, starting with 60 to 64)';
 
-// Uyir's social pages. After submitting their documents, nurses are asked to follow all of them
+// Uyir's social pages. After submitting their documents and bank details, nurses are asked to follow all of them
 // (open each page, then confirm) before they continue.
 export const SOCIAL = {
   instagram: { label: 'Instagram', action: 'Follow on Instagram', url: 'https://www.instagram.com/dhspvtltd' },

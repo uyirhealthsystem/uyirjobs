@@ -6,7 +6,7 @@ import { YouTube } from '../components/YouTube.jsx';
 const TRUST = [
   ['🔒', 'Your information is safe', 'Your details and documents are encrypted and stored securely on servers in India.'],
   ['✅', 'Verified by our district team', 'Every registration is personally reviewed before a nurse is approved.'],
-  ['🏦', 'Bank details protected', 'Asked for only after you are verified, and never shown in full to anyone.'],
+  ['🏦', 'Bank details protected', 'Asked for once, after your documents, and never shown in full to anyone.'],
   ['⏱️', 'Takes about 10 minutes', 'Keep your nursing certificate, council registration and a government ID ready.'],
 ];
 

@@ -177,7 +177,17 @@ fieldset.plain { border: 0; padding: 0; margin: 0 0 10px; }
 .reg .welcome-trust li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
 .reg .welcome-icon { font-size: 22px; line-height: 1.2; flex: none; }
 .reg .welcome-start { font-size: 17px; padding: 12px; }
-.reg label.chk { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
+/* Checkboxes (nurse portal and staff): big and in the brand colour. A label.chk is a bordered row,
+   tappable anywhere, that turns green when ticked. */
+input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--brand); cursor: pointer; vertical-align: middle; }
+label.chk { display: flex; gap: 12px; align-items: center; margin: 10px 0; padding: 12px 14px; min-height: 52px;
+  border: 2px solid var(--line); border-radius: var(--radius); background: var(--panel); cursor: pointer; font-size: 16px; line-height: 1.4; }
+label.chk input[type=checkbox] { flex: 0 0 auto; width: 28px; height: 28px; margin: 0; accent-color: var(--brand); cursor: pointer; }
+label.chk:has(input:checked) { border-color: var(--brand); background: var(--brand-soft); }
+label.chk:has(input:focus-visible) { outline: 3px solid var(--brand); outline-offset: 2px; }
+label.chk:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+label.chk:has(input:disabled) input { cursor: not-allowed; }
+.toolbar label.chk { margin: 0; min-height: 0; padding: 6px 12px; font-size: 14px; }
 .reg .docrow { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .reg .docrow .upload { margin-top: 6px; }
 .reg .docrow input[type=file] { max-width: 100%; }

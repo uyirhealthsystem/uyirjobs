@@ -1,6 +1,6 @@
 // Nurse-facing registration portal API (public). The personal link token in the URL identifies
 // the nurse; there is no OTP step. Staff send the link by SMS from their own phone after a call.
-// Details & consent → documents (multipart upload → S3) → staff review → bank details once verified.
+// Details & consent → documents (multipart upload → S3) → bank details → follow Uyir → staff review.
 // The link is the nurse's only credential: it is long and random (reg_token), and the portal never
 // shows the full bank account number back (last 4 digits only).
 import { Router } from 'express';
@@ -66,7 +66,7 @@ registrationRouter.get('/:t/form', withNurse, async (req, res) => {
     districts: DISTRICTS, taluks: TALUKS,
     documents: docs, missing, required: requiredDocTypes(n),
     social: {
-      needed: SOCIAL_STATUSES.includes(n.status) && !n.social_followed_at,
+      needed: SOCIAL_STATUSES.includes(n.status) && !!n.payout_added_at && !n.social_followed_at,
       links: SOCIAL, opened: n.social_opened || [], followed_at: n.social_followed_at,
     },
     payout: {
@@ -164,7 +164,6 @@ registrationRouter.post('/:t/submit-docs', withNurse, async (req, res) => {
   const missing = await missingRequiredDocs(n.id, n);
   if (missing.length) throw httpError(400, `Still missing: ${missing.map(m => DOC_TYPES[m].label).join(', ')}`);
   if (!DOCS_OPEN.includes(n.status)) throw httpError(409, 'Nothing to submit');
-  if (!n.payout_added_at) throw httpError(409, 'Please add your bank details first');
   await transition(n.id, 'SUBMITTED', { role: 'system', actor: 'nurse' }, n.status === 'CORRECTION_REQUIRED' ? 'Corrected documents submitted' : 'Documents submitted');
   res.json({ ok: true });
 });
@@ -182,6 +181,7 @@ registrationRouter.post('/:t/social/open', withNurse, async (req, res) => {
 registrationRouter.post('/:t/social/confirm', withNurse, async (req, res) => {
   const n = req.nurse;
   if (!SOCIAL_STATUSES.includes(n.status)) throw httpError(409, 'Please submit your documents first');
+  if (!n.payout_added_at) throw httpError(409, 'Please add your bank details first');
   const missing = Object.keys(SOCIAL).filter(k => !(n.social_opened || []).includes(k));
   if (missing.length) throw httpError(400, `Please open and follow: ${missing.map(k => SOCIAL[k].label).join(', ')}`);
   if (!n.social_followed_at) {
@@ -191,12 +191,12 @@ registrationRouter.post('/:t/social/confirm', withNurse, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Bank / payment details, collected after the nurse's details and before the documents. The account
+// Bank / payment details, collected right after the documents are submitted. The account
 // number is encrypted at rest. Submitted once: after that they cannot be changed through the portal.
 const PAYOUT_LOCKED = 'Your bank details are already submitted and cannot be changed. Please contact the Uyir team if they are wrong.';
 registrationRouter.post('/:t/payout', withNurse, async (req, res) => {
   const n = req.nurse, body = req.body || {};
-  if (!PAYOUT_STATUSES.includes(n.status)) throw httpError(409, 'Please fill in your details first');
+  if (!PAYOUT_STATUSES.includes(n.status)) throw httpError(409, 'Please submit your documents first');
   if (n.payout_added_at) throw httpError(409, PAYOUT_LOCKED);
   const holder = String(body.account_holder || '').trim().slice(0, 120);
   const acct = cleanAccountNumber(body.account_number);

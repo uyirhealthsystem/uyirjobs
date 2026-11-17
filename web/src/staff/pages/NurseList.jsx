@@ -176,7 +176,7 @@ function AddNurse({ onDone }) {
           </select>
         )}
         <input type="text" aria-label="Source" placeholder="Source (optional)" value={form.source} onChange={set('source')} />
-        <label className="small"><input type="checkbox" checked={form.invite} onChange={set('invite')} /> Mark as invited (activates the registration link)</label>
+        <label className="chk"><input type="checkbox" checked={form.invite} onChange={set('invite')} /> Mark as invited (activates the registration link)</label>
         <button className="btn primary" disabled={create.isPending}>{create.isPending ? 'Creating…' : 'Create'}</button>
       </form>
     </div>
