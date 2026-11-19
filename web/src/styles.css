@@ -192,3 +192,27 @@ label.chk:has(input:disabled) input { cursor: not-allowed; }
 .reg .docrow .upload { margin-top: 6px; }
 .reg .docrow input[type=file] { max-width: 100%; }
 .reg input, .reg select { font-size: 16px; } /* avoids iOS zoom on focus */
+
+/* How a nurse was entered: nurses outside the Uyir nurse list stand out. */
+.pill.o-added { background: #fff1e6; color: #b93815; font-weight: 600; }
+.pill.o-district_import { background: #f3ebfd; color: #6b21a8; }
+.pill.o-self { background: var(--info-soft); color: var(--info); }
+
+/* Screen guard (District Admins): watermark, shield when the window loses focus, no printing or selection. */
+.watermark { position: fixed; inset: 0; z-index: 9000; pointer-events: none; background-repeat: repeat; }
+.screen-shield { position: fixed; inset: 0; z-index: 9500; background: #1d2330; color: #fff; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; cursor: pointer; }
+.screen-shield b { display: block; font-size: 18px; margin-bottom: 6px; }
+body.guarded { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.guarded input, body.guarded textarea, body.guarded select { -webkit-user-select: text; user-select: text; }
+body.guarded img { -webkit-user-drag: none; }
+@media print {
+  body.guarded > * { display: none !important; }
+  body.guarded::after { content: 'Printing is not allowed.'; display: block; padding: 40px; font-size: 18px; }
+}
+
+/* In-app document viewer */
+.modal { position: fixed; inset: 0; z-index: 8000; background: rgba(16, 24, 40, .7); display: flex; flex-direction: column; padding: 16px; }
+.modal .bar { display: flex; justify-content: space-between; align-items: center; color: #fff; margin-bottom: 8px; gap: 8px; }
+.modal .body { flex: 1; min-height: 0; background: #fff; border-radius: 8px; overflow: auto; display: flex; align-items: center; justify-content: center; }
+.modal .body img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.modal .body iframe { width: 100%; height: 100%; border: 0; }

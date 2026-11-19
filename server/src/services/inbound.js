@@ -38,7 +38,7 @@ async function createFromWhatsApp(m) {
   const mobile = indianMobile(m.from);
   if (!mobile) return null;
   const id = await nextNurseId();
-  const made = await one(`INSERT INTO nurses (id, name, mobile, district, source, consent_whatsapp) VALUES (?,?,?,NULL,'WhatsApp',true)
+  const made = await one(`INSERT INTO nurses (id, name, mobile, district, source, consent_whatsapp, origin) VALUES (?,?,?,NULL,'WhatsApp',true,'self')
       ON CONFLICT (mobile) DO NOTHING RETURNING id`, id, startName(m.name), mobile);
   if (!made) return { found: await one(`SELECT id FROM nurses WHERE mobile = ?`, mobile), created: false };
   await logEvent(id, 'import', { note: 'Started on WhatsApp (chat link in the SMS); record created automatically', actor: 'nurse' });

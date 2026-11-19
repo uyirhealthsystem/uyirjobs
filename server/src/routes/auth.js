@@ -3,7 +3,7 @@ import { q, one } from '../db/pool.js';
 import { config } from '../config.js';
 import { token, verifyPassword } from '../lib/crypto.js';
 import { httpError } from '../lib/errors.js';
-import { STATUSES, FUNNEL, ROLES, DOC_TYPES, DISTRICTS } from '../domain/workflow.js';
+import { STATUSES, FUNNEL, ROLES, DOC_TYPES, DISTRICTS, ORIGINS } from '../domain/workflow.js';
 import { CALL_OUTCOMES } from '../services/nurses.js';
 import { BUSINESS_NUMBER } from '../services/whatsapp.js';
 import { requireAuth, SESSION_COOKIE, cookieOptions } from '../middleware/auth.js';
@@ -35,6 +35,6 @@ authRouter.get('/me', requireAuth, (req, res) => {
   const u = req.user;
   res.json({
     user: { id: u.id, username: u.username, name: u.name, role: u.role, district: u.district },
-    meta: { statuses: STATUSES, funnel: FUNNEL, roles: ROLES, docTypes: DOC_TYPES, districts: DISTRICTS, callOutcomes: CALL_OUTCOMES, whatsappNumber: BUSINESS_NUMBER || null },
+    meta: { statuses: STATUSES, funnel: FUNNEL, roles: ROLES, docTypes: DOC_TYPES, districts: DISTRICTS, origins: ORIGINS, callOutcomes: CALL_OUTCOMES, whatsappNumber: BUSINESS_NUMBER || null },
   });
 });

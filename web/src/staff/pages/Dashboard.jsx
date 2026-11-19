@@ -33,7 +33,10 @@ export function Dashboard() {
   const title = district ? `${district} district` : isSuper(user) ? 'All districts' : `${user.district} district`;
 
   const cards = [['total', 'Total nurses', {}], ...Object.keys(meta.statuses).map(s => [s, meta.statuses[s].label, { status: s }]),
-    ['whatsapp_connected', 'Connected on WhatsApp', null], ['bank_details', 'Bank details added', null], ['dnc', 'Do Not Contact', { dnc: '1' }]];
+    ['whatsapp_connected', 'Connected on WhatsApp', null], ['bank_details', 'Bank details added', null], ['dnc', 'Do Not Contact', { dnc: '1' }],
+    // Nurses not in the Uyir nurse list: only the Super Admin verifies them.
+    ...(isSuper(user) ? [['added_via_button', 'Added via Add nurse button', { origin: 'added' }],
+      ['outside_to_review', 'Not in Uyir list – to review', { origin: 'outside', status: 'SUBMITTED' }]] : [])];
 
   // Progress: nurses who have reached each step (a verified nurse also counts as invited, registered…).
   const reached = st => Object.entries(meta.statuses).filter(([, s]) => s.stage >= st).reduce((a, [k]) => a + (c[k] || 0), 0);

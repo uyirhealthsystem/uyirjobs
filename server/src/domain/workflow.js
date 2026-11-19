@@ -39,9 +39,24 @@ export const TRANSITIONS = {
 const PORTAL_ONLY = ['REGISTERED', 'SUBMITTED'];
 
 export const ROLES = {
-  super_admin:    { label: 'Super Admin',    hint: 'All districts. Everything a District Admin can do, plus staff accounts, moving nurses between districts and imports for any district.' },
-  district_admin: { label: 'District Admin', hint: 'Full admin actions for their own district: add / import nurses, send invites, edit details, review documents, Do Not Contact, export.' },
+  super_admin:    { label: 'Super Admin',    hint: 'All districts. Everything a District Admin can do, plus releasing pages of nurses, verifying nurses who are not in the Uyir nurse list, staff accounts, moving nurses between districts, imports for any district and CSV export.' },
+  district_admin: { label: 'District Admin', hint: 'Their own district: works the pages of nurses the Super Admin releases, adds / imports nurses, sends invites, edits details, reviews documents of nurses from the Uyir nurse list, Do Not Contact.' },
 };
+
+// How a nurse record got into the app. Only nurses from the Uyir nurse list (Super Admin import) are
+// released to District Admins page by page. Everyone else is visible to their district straight away,
+// but only the Super Admin can review their documents and verify them.
+export const ORIGINS = {
+  list:            { label: 'Uyir nurse list',            short: 'Uyir list' },
+  added:           { label: 'Added via Add nurse button', short: 'Add nurse' },
+  district_import: { label: 'District Admin CSV import',  short: 'District import' },
+  self:            { label: 'Self-registered on WhatsApp', short: 'WhatsApp' },
+};
+export const inUyirList = n => n?.origin === 'list';
+// Staff decisions that, for nurses outside the Uyir list, only the Super Admin may take.
+export const REVIEW_TRANSITIONS = ['VERIFIED', 'CORRECTION_REQUIRED', 'REJECTED'];
+export const PAGE_SIZE_DEFAULT = 50;
+export const PAGE_SIZE_MAX = 500;
 
 export function canTransition(from, to, role) {
   if (!(TRANSITIONS[from] || []).includes(to)) return { ok: false, reason: `Cannot move from ${STATUSES[from]?.label} to ${STATUSES[to]?.label}` };

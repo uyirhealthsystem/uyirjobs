@@ -11,6 +11,8 @@ import { NurseList } from './pages/NurseList.jsx';
 import { NurseDetail } from './pages/NurseDetail.jsx';
 import { ImportPage } from './pages/ImportPage.jsx';
 import { UsersPage } from './pages/UsersPage.jsx';
+import { ReleasePage } from './pages/ReleasePage.jsx';
+import { ScreenGuard } from './ScreenGuard.jsx';
 
 /** Who is signed in (null = nobody). */
 async function fetchMe() {
@@ -27,6 +29,7 @@ export default function StaffApp() {
 
   return (
     <AuthContext.Provider value={auth}>
+      {!isSuper(auth.user) && <ScreenGuard user={auth.user} />}
       <Layout>
         <Routes>
           <Route index element={<Dashboard />} />
@@ -34,6 +37,7 @@ export default function StaffApp() {
           <Route path="nurses/:id" element={<NurseDetail />} />
           <Route path="import" element={<ImportPage />} />
           {isSuper(auth.user) && <Route path="users" element={<UsersPage />} />}
+          {isSuper(auth.user) && <Route path="pages" element={<ReleasePage />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>

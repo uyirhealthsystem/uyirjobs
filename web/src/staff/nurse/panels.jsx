@@ -1,6 +1,6 @@
 // Panels on the nurse detail page. Every action goes through useNurseAction, which disables
 // the button while the request runs (no double submits) and refreshes the page data after.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api.js';
 import { when, kb } from '../../lib/format.js';
@@ -73,7 +73,9 @@ export function ActionsPanel({ d }) {
           ))}
         </div>
       ) : <div className="muted">{WAITING[n.status] || 'No actions right now.'}</div>}
-      {n.status === 'SUBMITTED' && <div className="small muted" style={{ marginTop: 8 }}>Review each document below first. “Mark verified” needs every required document verified.</div>}
+      {n.status === 'SUBMITTED' && (d.canReview
+        ? <div className="small muted" style={{ marginTop: 8 }}>Review each document below first. “Mark verified” needs every required document verified.</div>
+        : <div className="small muted" style={{ marginTop: 8 }}>Documents submitted. This nurse is not in the Uyir nurse list, so the Super Admin reviews and verifies them.</div>)}
       {pendingTo && (
         <InlineForm
           label={<><StatusPill status={pendingTo} /> — <b>reason required</b>, the nurse sees it when they open their registration link</>}
@@ -103,11 +105,39 @@ export function ActionsPanel({ d }) {
   );
 }
 
+/** Shows a document inside the app (District Admins): watermarked by the screen guard, no download link. */
+function DocViewer({ doc, onClose }) {
+  const [src, setSrc] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    let url, live = true;
+    fetch(`/api/documents/${doc.id}/file`, { credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('Could not open the document'); return r.blob(); })
+      .then(b => { url = URL.createObjectURL(b); if (live) setSrc(url); })
+      .catch(e => live && setError(e.message));
+    const onKey = e => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => { live = false; if (url) URL.revokeObjectURL(url); window.removeEventListener('keydown', onKey); };
+  }, [doc.id, onClose]);
+  const isPdf = doc.mime === 'application/pdf';
+  return (
+    <div className="modal" role="dialog" aria-modal="true" aria-label={doc.filename}>
+      <div className="bar"><span>{doc.filename}</span><button className="btn sm" onClick={onClose}>Close</button></div>
+      <div className="body" onContextMenu={e => e.preventDefault()}>
+        {error ? <div className="muted">{error}</div> : !src ? <div className="muted">Loading…</div>
+          : isPdf ? <iframe title={doc.filename} src={src + '#toolbar=0&navpanes=0'} /> : <img src={src} alt={doc.filename} draggable={false} />}
+      </div>
+    </div>
+  );
+}
+
 export function DocumentsPanel({ d }) {
-  const { meta } = useAuth();
+  const { meta, user } = useAuth();
   const toast = useToast();
   const n = d.nurse;
-  const canReview = n.status === 'SUBMITTED';
+  const canReview = n.status === 'SUBMITTED' && d.canReview;
+  const [viewing, setViewing] = useState(null);
+  const closeViewer = useRef(() => setViewing(null)).current;
   const docs = d.documents.filter(x => x.status !== 'SUPERSEDED');
   const [review, setReview] = useState(null);   // { id, status }
   const act = useNurseAction(n.id, {
@@ -122,6 +152,7 @@ export function DocumentsPanel({ d }) {
     <div className="panel">
       <h2>Documents</h2>
       {d.missingDocs.length > 0 && <div className="banner warn">Missing: {d.missingDocs.map(m => meta.docTypes[m].label).join(', ')}</div>}
+      {d.superReviewOnly && !d.canReview && <div className="banner info">Not in the Uyir nurse list: only the Super Admin can review these documents and verify this nurse.</div>}
       {docs.length ? docs.map(doc => (
         <div className="doc" key={doc.id}>
           <div>
@@ -130,7 +161,9 @@ export function DocumentsPanel({ d }) {
             {doc.note && <div className="small">{doc.note}</div>}
           </div>
           <div className="actions">
-            <a className="btn sm" href={`/api/documents/${doc.id}/file`} target="_blank" rel="noopener noreferrer">View</a>
+            {isSuper(user)
+              ? <a className="btn sm" href={`/api/documents/${doc.id}/file`} target="_blank" rel="noopener noreferrer">View</a>
+              : <button className="btn sm" onClick={() => setViewing(doc)}>View</button>}
             {canReview && doc.status === 'SUBMITTED' && <>
               <button className="btn sm" disabled={act.isPending} onClick={() => save(doc.id, 'VERIFIED')}>Verify</button>
               <button className="btn sm" disabled={act.isPending} onClick={() => setReview({ id: doc.id, status: 'CORRECTION' })}>Needs correction</button>
@@ -139,6 +172,7 @@ export function DocumentsPanel({ d }) {
           </div>
         </div>
       )) : <div className="muted">No documents uploaded yet.</div>}
+      {viewing && <DocViewer doc={viewing} onClose={closeViewer} />}
       {review && (
         <InlineForm
           key={review.id + review.status}

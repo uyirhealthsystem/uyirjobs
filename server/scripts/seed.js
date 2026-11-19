@@ -6,7 +6,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pool, q, one, tx, insertMany, formatNurseId, syncNurseSeq } from '../src/db/pool.js';
-import { migrate } from '../src/db/schema.js';
+import { migrate, assignLegacyPages } from '../src/db/schema.js';
 import { hashPassword } from '../src/lib/crypto.js';
 import { UPLOAD_DIR } from '../src/services/storage.js';
 import { STATUSES, DISTRICTS } from '../src/domain/workflow.js';
@@ -16,7 +16,7 @@ await migrate();
 const args = new Set(process.argv.slice(2));
 
 if (args.has('--reset')) {
-  await q(`TRUNCATE messages, documents, events, nurses RESTART IDENTITY CASCADE`);
+  await q(`TRUNCATE messages, documents, events, nurses, nurse_pages RESTART IDENTITY CASCADE`);
   await q(`ALTER SEQUENCE nurse_no_seq RESTART WITH 1`);
   console.log('Cleared nurse data.');
 }
@@ -99,6 +99,8 @@ if (args.has('--demo')) {
     await insertMany('documents', ['nurse_id', 'type', 'filename', 'mime', 'stored_name', 'storage', 'size', 'status'], docs);
     await syncNurseSeq();
   });
+  // Demo nurses already worked on go on each district's page 0; the rest wait for the Super Admin to release pages.
+  await assignLegacyPages();
   console.log(`Generated ${TOTAL.toLocaleString()} synthetic leads across ${DISTRICTS.length} districts.`);
 }
 

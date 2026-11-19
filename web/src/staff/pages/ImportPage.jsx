@@ -35,6 +35,11 @@ export function ImportPage() {
   return (
     <>
       <div className="pagehead"><div><h1>Import nurses</h1><div className="muted">Add many nurses at once from a CSV file. They start as “Not Invited”; send links from the nurse list.</div></div></div>
+      <div className="banner info">
+        {isSuper(user)
+          ? <>Your import is the <b>Uyir nurse list</b>. District Admins see these nurses only as you release them, one page at a time (Page release).</>
+          : <>Nurses you import are <b>not</b> part of the Uyir nurse list: they are marked as your import, and only the Super Admin can review their documents and verify them.</>}
+      </div>
       <div className="panel">
         <p>CSV with a header row. Required: <b>Name</b>, <b>Mobile</b>{isSuper(user) && <>, <b>District</b></>}. Optional:{' '}
           {!isSuper(user) && <><b>District</b> (must be {user.district}), </>}<b>Nurse ID</b> (UYIR-NUR-000001 format; generated if blank), <b>Source</b>, <b>WhatsApp consent</b> (yes / no).</p>

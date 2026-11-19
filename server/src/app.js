@@ -21,6 +21,7 @@ import { nursesRouter } from './routes/nurses.js';
 import { documentsRouter } from './routes/documents.js';
 import { importRouter } from './routes/import.js';
 import { usersRouter } from './routes/users.js';
+import { pagesRouter } from './routes/pages.js';
 import { registrationRouter } from './routes/registration.js';
 import { whatsappRouter } from './routes/whatsapp.js';
 
@@ -85,6 +86,7 @@ export function createApp() {
   api.use('/documents', requireAuth, documentsRouter);
   api.use('/import', requireAuth, importRouter);
   api.use('/users', requireAuth, usersRouter);
+  api.use('/pages', requireAuth, pagesRouter);
   api.use(notFound);
   app.use('/api', api);
 

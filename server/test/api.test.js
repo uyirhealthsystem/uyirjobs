@@ -60,6 +60,8 @@ before(async () => {
       ('UYIR-NUR-900001', 'Legacy Linksent', '9000000001', 'Madurai', 'REG_LINK_SENT', 3),
       ('UYIR-NUR-900002', 'Legacy Active',   '9000000002', 'Madurai', 'ACTIVE', 8),
       ('UYIR-NUR-900003', 'Legacy Noanswer', '9000000003', 'Madurai', 'NO_ANSWER', 1)`);
+  // ...and the way the version before page release left it (no origins, no pages).
+  await c2.query(`ALTER TABLE nurses DROP COLUMN page_id, DROP COLUMN origin, DROP COLUMN added_by; DROP TABLE nurse_pages`);
   await c2.end();
 
   srv = spawn(node[0], [node[1], 'src/index.js'], { env, stdio: process.env.TEST_SERVER_LOG ? 'inherit' : 'ignore' });
@@ -190,10 +192,27 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.equal(ev.filter(e => /Opened Uyir's Instagram page/.test(e.note || '')).length, 1, 'opening recorded once');
   assert.ok(ev.some(e => /Confirmed following Uyir/.test(e.note || '')));
 
-  assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'VERIFIED' })).status, 409, 'docs must be reviewed first');
-  assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'REJECTED' })).status, 400, 'reason required');
-  for (const d of (await admin('/api/nurses/' + id)).body.documents) await admin(`/api/nurses/${id}/documents/${d.id}/review`, { status: 'VERIFIED' });
-  assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'VERIFIED' })).status, 200);
+  // Added with the Add nurse button (not in the Uyir nurse list): only the Super Admin reviews and verifies.
+  const seen = (await admin('/api/nurses/' + id)).body;
+  assert.equal(seen.nurse.origin, 'added');
+  assert.equal(seen.superReviewOnly, true);
+  assert.equal(seen.canReview, false);
+  assert.deepEqual(seen.allowed, [], 'District Admin is offered no review actions');
+  const firstDoc = seen.documents[0];
+  assert.equal((await admin(`/api/nurses/${id}/documents/${firstDoc.id}/review`, { status: 'VERIFIED' })).status, 403, 'District Admin cannot verify documents');
+  for (const to of ['VERIFIED', 'CORRECTION_REQUIRED', 'REJECTED']) {
+    assert.equal((await admin(`/api/nurses/${id}/transition`, { to, note: 'x' })).status, 403, `District Admin cannot set ${to}`);
+  }
+  const sup = await login('admin', 'Admin@123');
+  const supView = (await sup('/api/nurses/' + id)).body;
+  assert.equal(supView.canReview, true);
+  assert.equal(supView.nurse.added_by_name, 'Tenkasi District Admin', 'Super Admin sees who added the nurse');
+  const added = (await sup('/api/nurses?origin=added&q=' + id)).body.rows[0];
+  assert.equal(added.added_by_name, 'Tenkasi District Admin');
+  assert.equal((await sup(`/api/nurses/${id}/transition`, { to: 'VERIFIED' })).status, 409, 'docs must be reviewed first');
+  assert.equal((await sup(`/api/nurses/${id}/transition`, { to: 'REJECTED' })).status, 400, 'reason required');
+  for (const d of supView.documents) assert.equal((await sup(`/api/nurses/${id}/documents/${d.id}/review`, { status: 'VERIFIED' })).status, 200);
+  assert.equal((await sup(`/api/nurses/${id}/transition`, { to: 'VERIFIED' })).status, 200);
 
   n = (await admin('/api/nurses/' + id)).body;
   assert.equal(n.nurse.status, 'VERIFIED');
@@ -203,9 +222,11 @@ test('full flow: add & invite → nurse registers → documents → review → v
   assert.deepEqual(n.messages.map(m => `${m.channel}:${m.template}`).reverse(),
     ['sms:INVITE', 'sms:INVITE_AGAIN', 'whatsapp:REG_LINK', 'whatsapp:REG_DONE', 'whatsapp:VERIFIED']);
 
-  const csv = await admin('/api/nurses/export.csv?q=' + id);
+  assert.equal((await admin('/api/nurses/export.csv?q=' + id)).status, 403, 'District Admins cannot export');
+  const csv = await sup('/api/nurses/export.csv?q=' + id);
   assert.match(csv.body, /council_reg_no/);
   assert.match(csv.body, new RegExp(`${id},Kavya Test,9999900001,Tenkasi,Verified`));
+  assert.match(csv.body, /,Added via Add nurse button,/, 'export says how the nurse was entered');
   assert.ok(!csv.body.includes('123456789012'), 'full account number is never exported');
 });
 
@@ -230,7 +251,7 @@ test('District Admins are confined to their own district', async () => {
   assert.equal((await tenkasi(`/api/nurses/${chennaiNurse.id}/transition`, { to: 'INVITED' })).status, 404);
   assert.equal((await tenkasi(`/api/nurses/${chennaiNurse.id}/note`, { note: 'x' })).status, 404);
   assert.equal((await tenkasi('/api/nurses/bulk', { action: 'invite', ids: [chennaiNurse.id] })).body.done, 0);
-  assert.ok(!(await tenkasi('/api/nurses/export.csv')).body.includes(',Chennai,'), 'export is district-scoped');
+  assert.equal((await tenkasi('/api/nurses/export.csv')).status, 403, 'only the Super Admin exports');
   assert.equal((await tenkasi('/api/users')).status, 403, 'no staff management');
 
   const own = (await tenkasi('/api/nurses?size=1')).body.rows[0];
@@ -245,7 +266,7 @@ test('Super Admin works across districts and manages staff', async () => {
   assert.ok(d.districts.length > 5, 'sees all districts');
 
   // Move a nurse between districts: the old District Admin loses access, the new one gains it.
-  const nurse = (await sup('/api/nurses?district=Tenkasi&status=NEW&size=1')).body.rows[0];
+  const nurse = (await sup('/api/nurses?district=Tenkasi&status=INVITED&size=1')).body.rows[0];
   const tenkasi = await login('tenkasi.admin', 'Tenkasi@123');
   const chennai = await login('chennai.admin', 'Chennai@123');
   assert.equal((await sup(`/api/nurses/${nurse.id}`, { district: 'Chennai' }, 'PATCH')).status, 200);
@@ -291,6 +312,10 @@ test('old CRM data is upgraded on startup', async () => {
   assert.equal((await st('UYIR-NUR-900002')).stage_reached, 4);
   const coord = await login('old.coord', 'Legacy@123');
   assert.equal((await coord('/api/me')).body.user.role, 'district_admin', 'coordinator → District Admin');
+  // Pages introduced: nurses the district already worked on stay visible (page 0); untouched ones wait for a release.
+  assert.equal((await coord('/api/nurses/UYIR-NUR-900001')).status, 200, 'worked-on nurse kept');
+  assert.equal((await coord('/api/nurses/UYIR-NUR-900003')).status, 404, 'untouched list nurse waits for a page');
+  assert.equal((await st('UYIR-NUR-900001')).origin, 'list');
   await login('old.caller', 'Legacy@123', 401);   // deactivated: role no longer exists
   await login('old.verifier', 'Legacy@123', 401);
   const users = (await sup('/api/users')).body.rows;
@@ -339,6 +364,67 @@ test('import: Super Admin any district, District Admin own district only', async
   assert.equal(r.body.inserted, 2);
   assert.match(r.body.errors[0].reason, /outside your district/);
   assert.equal((await tenkasi('/api/import', { csv: 'Name,Mobile\nD Four,9888800014\n' })).body.inserted, 1, 'district column optional');
+  assert.equal(r.body.origin, 'district_import');
+  const mine = (await tenkasi('/api/nurses?q=9888800011')).body.rows[0];
+  assert.equal(mine.origin, 'district_import', 'a District Admin import is not the Uyir list');
+  assert.equal((await tenkasi('/api/nurses/' + mine.id)).body.superReviewOnly, true);
+  assert.equal(row.origin, 'list', "the Super Admin's import is the Uyir list");
+});
+
+test('page release: one page a day per district, the next only after the current one is verified', async () => {
+  const sup = await login('admin', 'Admin@123');
+  const tenkasi = await login('tenkasi.admin', 'Tenkasi@123');
+  assert.equal((await tenkasi('/api/pages')).status, 403, 'District Admins cannot release pages');
+  assert.equal((await tenkasi('/api/pages/release', { district: 'Tenkasi' })).status, 403);
+
+  // District Admins never see list nurses that are not on a released page.
+  assert.ok((await tenkasi('/api/nurses?size=200')).body.rows.every(r => r.origin !== 'list' || r.page_no != null));
+  const waiting = (await sup('/api/nurses?district=Tenkasi&origin=list&status=NEW&sort=id&size=200')).body.rows.filter(r => r.page_no == null);
+  assert.ok(waiting.length > 5);
+  assert.equal((await tenkasi('/api/nurses/' + waiting[0].id)).status, 404, 'unreleased nurse hidden');
+  assert.equal((await tenkasi(`/api/nurses/${waiting[0].id}/transition`, { to: 'INVITED' })).status, 404);
+
+  let row = (await sup('/api/pages')).body.districts.find(d => d.district === 'Tenkasi');
+  assert.equal(row.page.page_no, 0, 'earlier work is page 0');
+  assert.ok(row.page.verified_at);
+  assert.equal(row.blocked, null);
+  const remaining = row.remaining;
+
+  assert.equal((await sup('/api/pages/release', { district: 'Tenkasi', size: 9999 })).status, 400);
+  assert.equal((await sup('/api/pages/release', { district: 'Atlantis' })).status, 400);
+  // Two releases at the same moment: one page.
+  const both = await Promise.all([1, 2].map(() => sup('/api/pages/release', { district: 'Tenkasi', size: 5 })));
+  assert.deepEqual(both.map(r => r.status).sort(), [200, 409]);
+  const ok = both.find(r => r.status === 200).body.released[0];
+  assert.deepEqual(ok, { district: 'Tenkasi', page_no: 1, count: 5 });
+  assert.equal((await tenkasi('/api/nurses/' + waiting[0].id)).status, 200, 'released nurse visible');
+  assert.equal((await tenkasi('/api/nurses/' + waiting[5].id)).status, 404, 'only one page released');
+  assert.equal((await tenkasi('/api/pages/mine')).body.page.page_no, 1);
+  const ev = (await tenkasi('/api/nurses/' + waiting[0].id)).body.events;
+  assert.ok(ev.some(e => /Released to Tenkasi District Admin \(page 1\)/.test(e.note || '')));
+
+  row = (await sup('/api/pages')).body.districts.find(d => d.district === 'Tenkasi');
+  assert.equal(row.remaining, remaining - 5);
+  assert.equal(row.page.progress.total, 5);
+  assert.match(row.blocked, /Page 1 is not verified/);
+  const again = await sup('/api/pages/release', { district: 'Tenkasi' });
+  assert.equal(again.status, 409);
+  assert.match(again.body.error, /not verified/);
+
+  assert.equal((await sup(`/api/pages/${row.page.id}/verify`, {})).status, 200);
+  assert.equal((await sup(`/api/pages/${row.page.id}/verify`, {})).status, 409, 'already verified');
+  const sameDay = await sup('/api/pages/release', { district: 'Tenkasi' });
+  assert.equal(sameDay.status, 409, 'one page a day');
+  assert.match(sameDay.body.error, /already released today/);
+
+  // Release to every district at once: Tenkasi is skipped (released today), the others get page 1.
+  const all = (await sup('/api/pages/release', { all: true, size: 3 })).body;
+  assert.match(all.skipped.find(s => s.district === 'Tenkasi').reason, /today/);
+  const chennai = all.released.find(r => r.district === 'Chennai');
+  assert.equal(chennai.page_no, 1);
+  assert.equal(chennai.count, 3);
+  const cards = (await sup('/api/dashboard')).body.cards;
+  assert.ok(cards.added_via_button > 0);
 });
 
 test('health check responds for the load balancer', async () => {
@@ -366,8 +452,9 @@ test('WhatsApp: correction reaches the nurse; delivery status comes back by webh
   assert.equal((await pub(`${t}/submit-docs`, {})).status, 200);
   await pub(`${t}/payout`, BANK);
   const doc = (await admin('/api/nurses/' + id)).body.documents.find(d => d.type === 'COUNCIL_REG');
-  await admin(`/api/nurses/${id}/documents/${doc.id}/review`, { status: 'CORRECTION', note: 'Certificate is blurred' });
-  assert.equal((await admin(`/api/nurses/${id}/transition`, { to: 'CORRECTION_REQUIRED', note: 'Council certificate is blurred' })).status, 200);
+  const sup = await login('admin', 'Admin@123');   // added with the Add nurse button: the Super Admin reviews
+  await sup(`/api/nurses/${id}/documents/${doc.id}/review`, { status: 'CORRECTION', note: 'Certificate is blurred' });
+  assert.equal((await sup(`/api/nurses/${id}/transition`, { to: 'CORRECTION_REQUIRED', note: 'Council certificate is blurred' })).status, 200);
 
   const sent = await until(() => waSent.find(m => m.body.to === '919999900055' && m.body.template?.name === 'uyir_correction_required'));
   assert.equal(sent.auth, 'Bearer test-token');

@@ -60,11 +60,15 @@ importRouter.post('/', async (req, res) => {
       const nums = await q(`SELECT nextval('nurse_no_seq') n FROM generate_series(1, ?)`, blanks.length);
       blanks.forEach((o, i) => { o.id = formatNurseId(nums[i].n); });
     }
-    await insertMany('nurses', ['id', 'name', 'mobile', 'district', 'source', 'consent_whatsapp'], ok);
+    // The Super Admin's import is the Uyir nurse list (released to districts page by page); a District
+    // Admin's import is not, so those nurses are verified by the Super Admin only.
+    const origin = isSuper(user) ? 'list' : 'district_import', addedBy = isSuper(user) ? null : user.id;
+    for (const o of ok) Object.assign(o, { origin, added_by: addedBy });
+    await insertMany('nurses', ['id', 'name', 'mobile', 'district', 'source', 'consent_whatsapp', 'origin', 'added_by'], ok);
     await insertMany('events', ['nurse_id', 'type', 'note', 'user_id', 'actor'], ok.map(o => ({
       nurse_id: o.id, type: 'import', user_id: user.id, actor: user.username, note: `Imported from ${o.source}${o.consent_whatsapp ? '; WhatsApp opt-in: yes' : ''}`,
     })));
   });
   req.log.info({ inserted: ok.length, skipped: errors.length }, 'nurses imported');
-  res.json({ inserted: ok.length, errors: errors.slice(0, 200), errorCount: errors.length });
+  res.json({ inserted: ok.length, errors: errors.slice(0, 200), errorCount: errors.length, origin: isSuper(user) ? 'list' : 'district_import' });
 });

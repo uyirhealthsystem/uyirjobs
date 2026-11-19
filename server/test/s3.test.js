@@ -22,6 +22,10 @@ const fakeS3 = createServer(async (req, res) => {
     objects.set(decodeURIComponent(url.pathname), { body: Buffer.concat(chunks), headers: req.headers });
     res.writeHead(200, { ETag: '"abc"' }); return res.end();
   }
+  if (req.method === 'GET' && objects.has(decodeURIComponent(url.pathname))) {
+    const o = objects.get(decodeURIComponent(url.pathname));
+    res.writeHead(200, { 'Content-Type': o.headers['content-type'], 'Content-Length': o.body.length }); return res.end(o.body);
+  }
   // Versioned bucket: every object has its current version plus an older one and a delete marker,
   // so erasing has to remove all of them.
   const isBucket = /^\/uyir-docs\/?$/.test(url.pathname);
@@ -98,8 +102,15 @@ test('documents are written to S3 with KMS encryption and viewed through presign
   assert.equal(obj.headers['x-amz-meta-nurse-id'], id);
 
   const doc = (await json('/api/nurses/' + id, { cookie })).body.documents.find(d => d.type === 'COUNCIL_REG');
-  const view = await json(`/api/documents/${doc.id}/file`, { cookie });
-  assert.equal(view.status, 302, 'staff are redirected to S3, bytes never pass through the app');
+  // District Admins view documents in the app's watermarked viewer: the bytes come through the app.
+  const streamed = await fetch(`${B}/api/documents/${doc.id}/file`, { headers: { cookie }, redirect: 'manual' });
+  assert.equal(streamed.status, 200);
+  assert.equal(streamed.headers.get('cache-control'), 'private, no-store');
+  assert.deepEqual(Buffer.from(await streamed.arrayBuffer()), pdf);
+  // The Super Admin is redirected to a short-lived presigned S3 URL.
+  const supLogin = await fetch(B + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'admin', password: 'Admin@123' }) });
+  const view = await json(`/api/documents/${doc.id}/file`, { cookie: supLogin.headers.get('set-cookie').split(';')[0] });
+  assert.equal(view.status, 302, 'Super Admin is redirected to S3');
   const loc = new URL(view.headers.get('location'));
   assert.equal(loc.origin, S3);
   assert.equal(loc.pathname, key);

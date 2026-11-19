@@ -31,12 +31,15 @@ export const isSuper = user => user.role === 'super_admin';
 export function needSuper(user) { if (!isSuper(user)) throw httpError(403, 'Only the Super Admin can do this'); }
 export const requireSuper = (req, res, next) => { needSuper(req.user); next(); };
 
-/** SQL WHERE fragment limiting nurses to what this user may see. */
+/**
+ * SQL WHERE fragment limiting nurses to what this user may see. A District Admin sees their district,
+ * but nurses from the Uyir list only once the Super Admin has released the page they are on.
+ */
 export function scope(user, alias = 'n') {
   if (isSuper(user)) return { w: [], v: [] };
-  return { w: [`${alias}.district = ?`], v: [user.district] };
+  return { w: [`${alias}.district = ?`, `(${alias}.origin <> 'list' OR ${alias}.page_id IS NOT NULL)`], v: [user.district] };
 }
-export const canSee = (user, n) => !!n && (isSuper(user) || n.district === user.district);
+export const canSee = (user, n) => !!n && (isSuper(user) || (n.district === user.district && (n.origin !== 'list' || n.page_id != null)));
 
 /** Load a nurse the user may see; 404 otherwise (no hint that the record exists in another district). */
 export async function loadVisibleNurse(user, id) {

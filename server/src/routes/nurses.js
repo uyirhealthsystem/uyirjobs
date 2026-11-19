@@ -6,7 +6,7 @@ import { httpError } from '../lib/errors.js';
 import { csvCell } from '../lib/csv.js';
 import {
   STATUSES, DOC_TYPES, TRANSITIONS, canTransition, normalizeDistrict, normalizeMobile, requiredDocTypes,
-  REG_FIELDS, REG_FIELD_LABELS, cleanRegField,
+  REG_FIELDS, REG_FIELD_LABELS, cleanRegField, ORIGINS, inUyirList, REVIEW_TRANSITIONS,
 } from '../domain/workflow.js';
 import { logEvent } from '../services/events.js';
 import { queueMessage, inviteChannel, manualSmsBody } from '../services/messaging.js';
@@ -17,6 +17,11 @@ import { scope, isSuper, needSuper, canSee, loadVisibleNurse } from '../middlewa
 export const nursesRouter = Router();
 const str = v => (Array.isArray(v) ? String(v[0] ?? '') : v == null ? '' : String(v));
 const channels = c => (c ? [c] : []);
+// Nurses outside the Uyir nurse list are reviewed and verified by the Super Admin only.
+const superReviewOnly = n => !inUyirList(n);
+function needReviewRight(user, n) {
+  if (superReviewOnly(n) && !isSuper(user)) throw httpError(403, 'This nurse is not in the Uyir nurse list: only the Super Admin can review their documents and verify them');
+}
 
 // A deleted record can still be opened (to see that it was deleted, by whom and why) but not changed.
 // Delete itself is allowed again: it retries erasing the files if that failed the first time.
@@ -35,6 +40,8 @@ function nurseFilter(user, qs) {
     const ss = str(qs.status).split(',').filter(s => STATUSES[s]);
     if (ss.length) { w.push(`n.status IN (${ss.map(() => '?').join(',')})`); v.push(...ss); }
   }
+  if (ORIGINS[str(qs.origin)]) { w.push('n.origin = ?'); v.push(str(qs.origin)); }
+  if (str(qs.origin) === 'outside') w.push(`n.origin <> 'list'`);
   if (str(qs.dnc) === '1') w.push('n.dnc');
   if (str(qs.dnc) === '0') w.push('NOT n.dnc');
   const s = str(qs.q).trim();
@@ -53,8 +60,10 @@ nursesRouter.get('/', async (req, res) => {
   const order = SORTS[str(req.query.sort)] || 'n.id';
   const [{ c: total }, rows] = await Promise.all([
     one(`SELECT COUNT(*) c FROM nurses n ${where}`, ...vals),
-    q(`SELECT n.id, n.name, n.mobile, n.district, n.status, n.dnc, n.qualification, n.registered_at, n.updated_at, n.whatsapp_connected_at
-        FROM nurses n ${where} ORDER BY ${order} LIMIT ? OFFSET ?`, ...vals, size, (page - 1) * size),
+    q(`SELECT n.id, n.name, n.mobile, n.district, n.status, n.dnc, n.qualification, n.registered_at, n.updated_at, n.whatsapp_connected_at,
+          n.origin, ab.name added_by_name, p.page_no
+        FROM nurses n LEFT JOIN users ab ON ab.id = n.added_by LEFT JOIN nurse_pages p ON p.id = n.page_id
+        ${where} ORDER BY ${order} LIMIT ? OFFSET ?`, ...vals, size, (page - 1) * size),
   ]);
   res.json({ rows, total, page, size });
 });
@@ -62,11 +71,13 @@ nursesRouter.get('/', async (req, res) => {
 // Everything collected about each nurse, except the bank account number (only its last 4 digits).
 const EXPORT_COLS = ['id', 'name', 'mobile', 'district', 'status', 'email', 'address', 'pincode', 'taluk', 'block', 'qualification', 'council_reg_no',
   'current_employment', 'experience_years', 'work_preference', 'preferred_locations', 'service_interests', 'registered_at',
-  'payout_account_holder', 'payout_account_last4', 'payout_ifsc', 'payout_upi', 'dnc', 'source', 'updated_at'];
+  'payout_account_holder', 'payout_account_last4', 'payout_ifsc', 'payout_upi', 'dnc', 'source', 'origin', 'updated_at'];
 
+// CSV export: Super Admin only.
 nursesRouter.get('/export.csv', async (req, res) => {
+  needSuper(req.user);
   const { where, vals } = nurseFilter(req.user, req.query);
-  const tag = isSuper(req.user) ? (str(req.query.district) || 'all-districts') : req.user.district;
+  const tag = str(req.query.district) || 'all-districts';
   res.set({
     'Content-Type': 'text/csv; charset=utf-8',
     'Content-Disposition': `attachment; filename="uyir-nurses-${tag.replace(/[^\w-]/g, '_')}-${new Date().toISOString().slice(0, 10)}.csv"`,
@@ -79,7 +90,8 @@ nursesRouter.get('/export.csv', async (req, res) => {
     const rows = await q(`SELECT ${EXPORT_COLS.map(c => 'n.' + c).join(', ')} FROM nurses n
         ${where ? where + ' AND' : 'WHERE'} n.id > ? ORDER BY n.id LIMIT 2000`, ...vals, after);
     if (!rows.length) break;
-    res.write('\r\n' + rows.map(r => EXPORT_COLS.map(c => csvCell(c === 'status' ? STATUSES[r[c]]?.label : r[c])).join(',')).join('\r\n'));
+    const label = (c, v) => (c === 'status' ? STATUSES[v]?.label : c === 'origin' ? ORIGINS[v]?.label : v);
+    res.write('\r\n' + rows.map(r => EXPORT_COLS.map(c => csvCell(label(c, r[c]))).join(',')).join('\r\n'));
     after = rows.at(-1).id;
   }
   res.end();
@@ -96,8 +108,9 @@ nursesRouter.post('/', async (req, res) => {
   if (await one(`SELECT 1 FROM nurses WHERE mobile = ?`, mobile)) throw httpError(409, 'A nurse with this mobile already exists');
   const out = await tx(async () => {
     const id = await nextNurseId();
-    await q(`INSERT INTO nurses (id, name, mobile, district, source, consent_whatsapp) VALUES (?,?,?,?,?,?)`,
-      id, name.slice(0, 200), mobile, district, str(body.source).trim().slice(0, 200) || 'Added by staff', !!body.consent_whatsapp);
+    // Not from the Uyir nurse list: visible to the district at once, verified by the Super Admin only.
+    await q(`INSERT INTO nurses (id, name, mobile, district, source, consent_whatsapp, origin, added_by) VALUES (?,?,?,?,?,?,'added',?)`,
+      id, name.slice(0, 200), mobile, district, str(body.source).trim().slice(0, 200) || 'Added by staff', !!body.consent_whatsapp, user.id);
     await logEvent(id, 'import', { note: `Added by staff${body.consent_whatsapp ? '; nurse agreed to WhatsApp messages' : ''}`, user });
     let notified = null;
     if (body.invite) notified = channels(inviteChannel(await transition(id, 'INVITED', { role: user.role, user, from: 'NEW' }, 'Invite sent when added')));
@@ -127,15 +140,18 @@ nursesRouter.post('/bulk', async (req, res) => {
 nursesRouter.get('/:id', async (req, res) => {
   const { user } = req;
   const n = await loadVisibleNurse(user, req.params.id);
-  const [events, documents, messages, missingDocs, deletedBy] = await Promise.all([
+  const [events, documents, messages, missingDocs, deletedBy, addedBy, page] = await Promise.all([
     q(`SELECT * FROM events WHERE nurse_id = ? ORDER BY id DESC`, n.id),
     q(`SELECT d.id, d.type, d.filename, d.mime, d.size, d.status, d.note, d.uploaded_at, d.reviewed_at, u.name reviewer
         FROM documents d LEFT JOIN users u ON u.id = d.reviewed_by WHERE d.nurse_id = ? ORDER BY d.id DESC`, n.id),
     q(`SELECT * FROM messages WHERE nurse_id = ? ORDER BY id DESC LIMIT 50`, n.id),
     n.stage_reached >= 2 && !n.deleted_at ? missingRequiredDocs(n.id, n) : [],
     n.deleted_by ? one(`SELECT name FROM users WHERE id = ?`, n.deleted_by) : null,
+    n.added_by ? one(`SELECT name, role FROM users WHERE id = ?`, n.added_by) : null,
+    n.page_id ? one(`SELECT page_no, released_at FROM nurse_pages WHERE id = ?`, n.page_id) : null,
   ]);
-  const allowed = (TRANSITIONS[n.status] || []).filter(to => canTransition(n.status, to, user.role).ok);
+  const reviewer = !superReviewOnly(n) || isSuper(user);
+  const allowed = (TRANSITIONS[n.status] || []).filter(to => canTransition(n.status, to, user.role).ok && (reviewer || !REVIEW_TRANSITIONS.includes(to)));
   // Call / SMS from the admin's own phone. The SMS carries our WhatsApp chat link with the nurse's code.
   const phone = '+91' + n.mobile;
   if (!n.dnc && n.consent_sms) n.wa_code = await ensureWaCode(n);
@@ -150,8 +166,12 @@ nursesRouter.get('/:id', async (req, res) => {
   // Never send secrets to the browser: OTP / session hashes and the encrypted account number stay server-side.
   const { reg_session, reg_session_expires, otp_hash, otp_expires, otp_attempts, payout_account_enc, call_attempts, consent_call, assigned_to, ...safe } = n;
   res.json({
-    nurse: { ...safe, registration_url: n.reg_token ? `${config.publicUrl}/register?t=${n.reg_token}` : null, deleted_by_name: deletedBy?.name ?? null },
+    nurse: {
+      ...safe, registration_url: n.reg_token ? `${config.publicUrl}/register?t=${n.reg_token}` : null, deleted_by_name: deletedBy?.name ?? null,
+      added_by_name: addedBy?.name ?? null, added_by_role: addedBy?.role ?? null, page_no: page?.page_no ?? null, page_released_at: page?.released_at ?? null,
+    },
     events, documents, messages, allowed, missingDocs, contact, requiredDocs: requiredDocTypes(n),
+    superReviewOnly: superReviewOnly(n), canReview: reviewer,
   });
 });
 
@@ -212,6 +232,7 @@ nursesRouter.post('/:id/transition', async (req, res) => {
   const note = str(body.note).trim().slice(0, 1000) || null;
   const check = canTransition(n.status, to, user.role);
   if (!check.ok) throw httpError(409, check.reason);
+  if (REVIEW_TRANSITIONS.includes(to)) needReviewRight(user, n);
   if (['CORRECTION_REQUIRED', 'REJECTED'].includes(to) && !note) throw httpError(400, 'A reason is required; it is sent to the nurse');
   if (to === 'VERIFIED') {
     const missing = await missingRequiredDocs(n.id, n);
@@ -306,6 +327,7 @@ nursesRouter.post('/:id/consent', async (req, res) => {
 nursesRouter.post('/:id/documents/:docId/review', async (req, res) => {
   const { user } = req, body = req.body || {};
   const n = await loadVisibleNurse(user, req.params.id);
+  needReviewRight(user, n);
   const d = /^\d+$/.test(req.params.docId) ? await one(`SELECT * FROM documents WHERE id = ? AND nurse_id = ?`, Number(req.params.docId), n.id) : null;
   if (!d) throw httpError(404, 'Document not found');
   const status = str(body.status);

@@ -26,7 +26,8 @@ export function NurseDetail() {
         <div>
           <div className="muted mono">{n.id}</div>
           <h1>{n.name} <StatusPill status={n.status} /> {n.dnc && <span className="pill dnc">Do Not Contact</span>}</h1>
-          <div className="muted">{n.district || 'No district yet'} · <span className="mono">{n.mobile}</span>{n.source && ` · ${n.source}`}</div>
+          <div className="muted">{n.district || 'No district yet'} · <span className="mono">{n.mobile}</span>{n.source && ` · ${n.source}`}
+            {n.origin === 'list' && ` · Uyir nurse list${n.page_no ? `, page ${n.page_no}` : ''}`}</div>
         </div>
         <button className="btn" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/nurses'))}>← Back</button>
       </div>
@@ -48,7 +49,14 @@ export function NurseDetail() {
         </div>
       ) : <>
       {n.dnc && <div className="banner dnc"><b>Do Not Contact</b> since {when(n.dnc_at)} — {n.dnc_reason}. Invites and reminders are blocked.</div>}
-      {n.review_note && NEEDS_NOTE.includes(n.status) && <div className="banner warn"><b>{st.label}:</b> {n.review_note}</div>}
+      {n.origin && n.origin !== 'list' && (
+        <div className="banner warn">
+          <span className={`pill o-${n.origin}`}>{meta.origins[n.origin]?.label}</span>
+          {n.added_by_name && <> by <b>{n.added_by_name}</b>{n.added_by_role && ` (${meta.roles[n.added_by_role]?.label})`}</>}
+          {' '}on {when(n.created_at)}. Not in the Uyir nurse list: only the Super Admin can review their documents and verify them.
+        </div>
+      )}
+      {n.review_note && NEEDS_NOTE.includes(n.status) &&<div className="banner warn"><b>{st.label}:</b> {n.review_note}</div>}
 
       <div className="grid2">
         <div>

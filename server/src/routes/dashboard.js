@@ -15,7 +15,9 @@ dashboardRouter.get('/', async (req, res) => {
   const statusCols = Object.keys(STATUSES).map(s => `${cnt(`n.status = '${s}'`)} "${s}"`).join(', ');
   const [cards, districts, recent] = await Promise.all([
     one(`SELECT COUNT(*) total, ${statusCols}, ${cnt('n.dnc')} dnc, ${cnt('n.payout_added_at IS NOT NULL')} bank_details,
-        ${cnt('n.whatsapp_connected_at IS NOT NULL')} whatsapp_connected FROM nurses n ${where}`, ...v),
+        ${cnt('n.whatsapp_connected_at IS NOT NULL')} whatsapp_connected,
+        ${cnt(`n.origin = 'added'`)} added_via_button, ${cnt(`n.origin <> 'list'`)} outside_list,
+        ${cnt(`n.origin <> 'list' AND n.status = 'SUBMITTED'`)} outside_to_review FROM nurses n ${where}`, ...v),
     q(`SELECT n.district, COUNT(*) total, ${statusCols} FROM nurses n ${where} GROUP BY n.district ORDER BY n.district`, ...v),
     q(`SELECT e.at, e.type, e.from_status, e.to_status, e.note, e.actor, n.id nurse_id, n.name, n.district
         FROM events e JOIN nurses n ON n.id = e.nurse_id ${where} ORDER BY e.id DESC LIMIT 15`, ...v),

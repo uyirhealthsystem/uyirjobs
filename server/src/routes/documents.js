@@ -5,7 +5,7 @@ import { DOC_TYPES } from '../domain/workflow.js';
 import { logEvent } from '../services/events.js';
 import { getNurse } from '../services/nurses.js';
 import { storageFor, safeFilename } from '../services/storage.js';
-import { canSee } from '../middleware/auth.js';
+import { canSee, isSuper } from '../middleware/auth.js';
 
 export const documentsRouter = Router();
 
@@ -15,7 +15,10 @@ documentsRouter.get('/:id/file', async (req, res) => {
   const store = storageFor(d.storage);
   await logEvent(d.nurse_id, 'document', { note: `Viewed ${DOC_TYPES[d.type]?.label || d.type}`, user: req.user });   // access audit for sensitive IDs
   // S3: authorise here, then hand the browser a presigned URL that expires in about a minute.
-  const url = await store.viewUrl(d.stored_name, { filename: d.filename, mime: d.mime });
+  // District Admins (and ?stream=1) get the bytes through the app instead, for the in-app viewer
+  // (watermarked, no download link); the page's CSP only lets it fetch from this origin.
+  const stream = !isSuper(req.user) || req.query.stream === '1';
+  const url = stream ? null : await store.viewUrl(d.stored_name, { filename: d.filename, mime: d.mime });
   res.set('Cache-Control', 'private, no-store');
   if (url) return res.redirect(302, url);
   const buf = await store.get(d.stored_name);
